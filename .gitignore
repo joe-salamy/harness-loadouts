@@ -2,7 +2,7 @@
 loadouts/
 
 # Personal notes
-scratchpad.md
+docs/
 
 # Claude Code local settings (user-specific permissions)
 CLAUDE.md
