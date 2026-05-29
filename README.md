@@ -1,60 +1,51 @@
-# Claude Code Loadouts
+# Harness Loadouts
 
-Reusable configuration templates for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) projects. A loadout packages up a CLAUDE.md, skills, hooks, and other files so you can apply a consistent setup across repos with one command.
+Reusable configuration templates for AI coding harnesses. A loadout packages instructions, skills, hooks, agents, commands, and other repo-local files so you can apply a consistent setup across projects with one command.
+
+The default harness is **opencode**.
 
 ## Quick Start
 
 ```powershell
 # 1. Clone this repo
-git clone <repo-url> && cd _loadouts
+git clone <repo-url> && cd harness-loadouts
 
 # 2. Create a loadout (see examples/ for reference)
 mkdir loadouts/my-loadout
-# Add a CLAUDE.md, skills, hooks — whatever you need
+# Add AGENTS.md, .opencode/skills, hooks, agents, commands, or other files
 
-# 3. Apply it to a repo
-.\claude-init.ps1 -Loadout my-loadout -Target C:\path\to\repo
+# 3. Apply it to a repo using the default opencode harness
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo
+
+# Apply a loadout for another harness
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness codex
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness gemini
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness claude-code
 
 # List available loadouts
-.\claude-init.ps1 -List
+.\harness-init.ps1 -List
 ```
 
-## What Goes in a Loadout
+## Harness Conventions
 
-| What          | Where to put it                                                 |
-| ------------- | --------------------------------------------------------------- |
-| CLAUDE.md     | `loadouts/<name>/CLAUDE.md`                                     |
-| Skills        | `loadouts/<name>/.claude/skills/<skill-name>/SKILL.md`          |
-| Hooks         | `loadouts/<name>/.claude/settings.local.json` (or `hooks.json`) |
-| Anything else | Drop it in `loadouts/<name>/` at the matching path              |
+| Harness  | Instructions | Skills              | Hooks/config                         | Agents/commands              |
+| -------- | ------------ | ------------------- | ------------------------------------ | ---------------------------- |
+| opencode | `AGENTS.md`  | `.opencode/skills/` | `opencode.json`, `.opencode/plugins/` | `.opencode/agents/`          |
+| codex    | `AGENTS.md`  | `.agents/skills/`   | `.codex/hooks.json`, `.codex/config.toml` | `.codex/agents/`        |
+| gemini   | `GEMINI.md`  | n/a                 | `.gemini/settings.json`, `.gemini/hooks/` | `.gemini/commands/`     |
+| claude-code | `CLAUDE.md` | `.claude/skills/` | `.claude/settings.local.json`, `.claude/hooks.json` | n/a |
 
-A loadout with just a `CLAUDE.md` is perfectly valid.
+Anything else in a loadout is copied recursively at the matching path. This includes `.git/hooks/`, local scripts, docs, and other support files.
 
 ## How It Works
 
-- **CLAUDE.md** is appended to any existing CLAUDE.md in the target (with a dated separator), or copied fresh if none exists.
-- **Skills** are copied recursively into `.claude/skills/`.
-- **Hooks** from `settings.local.json` are merged — only the `hooks` key is updated, existing `permissions` are preserved.
-- **Everything else** (e.g., `.git/hooks/`) is copied as-is into the target.
+- The harness instruction file is appended to any existing target file with a dated separator, or copied fresh if none exists.
+- Skills are copied recursively for harnesses with a known skills directory.
+- Codex hooks in `.codex/hooks.json`, Gemini hooks in `.gemini/settings.json`, and Claude hooks in `.claude/settings.local.json` are merged by hook event while preserving existing target settings.
+- opencode plugin files and any `.git/hooks/` files are copied as ordinary files/directories.
+- Existing files prompt before overwrite.
 
-## Hooks Format
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash .git/hooks/my-hook.sh" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-See [Claude Code hooks docs](https://docs.anthropic.com/en/docs/claude-code/hooks) for full syntax.
+`claude-init.ps1` remains as a deprecated compatibility wrapper around `harness-init.ps1`.
 
 ## License
 

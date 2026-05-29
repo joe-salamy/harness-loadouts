@@ -4,9 +4,14 @@ loadouts/
 # Personal notes
 docs/
 
-# Claude Code local settings (user-specific permissions)
-CLAUDE.md
-.claude/
+# Local harness settings (user-specific permissions)
+/CLAUDE.md
+/.claude/
+/AGENTS.md
+/.opencode/
+/.codex/
+/.agents/
+/.gemini/
 
 # OS
 Thumbs.db
