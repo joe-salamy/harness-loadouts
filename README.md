@@ -47,34 +47,6 @@ Anything else in a loadout is copied recursively at the matching path. This incl
 
 Earlier versions included a deprecated `claude-init.ps1` wrapper. Use `harness-init.ps1` directly.
 
-## Skill Usage Pruning
-
-`scripts/skill-usage-manager.py` tracks skill loads and archives stale skills without deleting them. It supports user-level Codex skills and repo-level skill folders:
-
-- User skills: `~/.codex/skills` -> `~/.codex/skills.archive`
-- Repo skills: `.agents/skills`, `.opencode/skills`, `.claude/skills` -> sibling `skills.archive`
-
-Pruning is based on skill-load recency, not wall-clock time. By default, a skill becomes an archive candidate after it has not been loaded in the last 100 recorded skill loads, but pruning is always dry-run unless `--apply` is passed.
-
-```powershell
-# Add one lightweight usage-recording instruction to managed SKILL.md files
-python .\scripts\skill-usage-manager.py instrument --scope all
-
-# Show user and current-repo skill usage
-python .\scripts\skill-usage-manager.py scan --scope all
-
-# Report archive candidates only
-python .\scripts\skill-usage-manager.py prune --scope all
-
-# Actually move eligible repo skills into skills.archive
-python .\scripts\skill-usage-manager.py prune --scope repo --apply
-
-# Restore an archived user skill
-python .\scripts\skill-usage-manager.py restore my-skill --scope user
-```
-
-The manager pins core user skills such as `skill-creator`, `skill-installer`, and `openai-docs` by default. Repo commands target the current git root unless `--repo <path>` is supplied; reusable templates under `loadouts/` are ignored unless `--include-loadout-templates` is passed.
-
 ## License
 
 MIT
