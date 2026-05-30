@@ -415,10 +415,11 @@ def split_frontmatter(text: str) -> tuple[str, str]:
 def record_instruction(skill_name: str, root: SkillRoot) -> str:
     script = Path(__file__).resolve()
     python_exe = sys.executable or "python"
+    repo_arg = f' --repo "{root.repo_root}"' if root.repo_root else ""
     return (
         f"{MARKER}\n"
         "When this skill is loaded, first run "
-        f"`\"{python_exe}\" \"{script}\" record \"{skill_name}\" --scope {root.scope} --path \"{root.skills_dir}\"`.\n\n"
+        f"`\"{python_exe}\" \"{script}\" record \"{skill_name}\" --scope {root.scope} --path \"{root.skills_dir}\"{repo_arg}`.\n\n"
     )
 
 

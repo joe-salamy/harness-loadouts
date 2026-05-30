@@ -45,7 +45,7 @@ Anything else in a loadout is copied recursively at the matching path. This incl
 - opencode plugin files and any `.git/hooks/` files are copied as ordinary files/directories.
 - Existing files prompt before overwrite.
 
-`claude-init.ps1` remains as a deprecated compatibility wrapper around `harness-init.ps1`.
+Earlier versions included a deprecated `claude-init.ps1` wrapper. Use `harness-init.ps1` directly.
 
 ## Skill Usage Pruning
 

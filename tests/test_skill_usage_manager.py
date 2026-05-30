@@ -122,6 +122,18 @@ class SkillUsageManagerTests(unittest.TestCase):
             self.assertEqual(text.count(manager.MARKER), 1)
             self.assertIn('record "example" --scope user', text)
 
+    def test_repo_instrument_records_with_resolved_repo_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            skills = repo / "loadouts" / "python" / ".opencode" / "skills"
+            make_skill(skills, "example")
+
+            manager.main(["--repo", str(repo), "--include-loadout-templates", "instrument", "--scope", "repo"])
+
+            text = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn('record "example" --scope repo', text)
+            self.assertIn(f'--repo "{repo.resolve()}"', text)
+
     def test_restore_moves_archived_skill_back(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             skills = Path(temp) / ".codex" / "skills"
