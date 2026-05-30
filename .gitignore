@@ -1,5 +1,11 @@
 # User's personal loadouts (create your own from examples/)
-loadouts/
+loadouts/*
+!loadouts/worktrees/
+loadouts/worktrees/*
+!loadouts/worktrees/.opencode/
+loadouts/worktrees/.opencode/*
+!loadouts/worktrees/.opencode/scripts/
+!loadouts/worktrees/.opencode/scripts/*.py
 
 # Personal notes
 docs/
@@ -7,8 +13,9 @@ docs/
 # Local harness settings (user-specific permissions)
 /CLAUDE.md
 /.claude/
-/AGENTS.md
-/.opencode/
+/.opencode/*
+!/.opencode/scripts/
+!/.opencode/scripts/*.py
 /.codex/
 /.agents/
 /.gemini/
@@ -16,6 +23,10 @@ docs/
 # OS
 Thumbs.db
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
 
 # Editor
 *.swp

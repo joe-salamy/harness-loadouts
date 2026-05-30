@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "codex-worktree-flow.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".opencode" / "scripts" / "codex-worktree-flow.py"
 SPEC = importlib.util.spec_from_file_location("codex_worktree_flow", SCRIPT_PATH)
 flow = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
