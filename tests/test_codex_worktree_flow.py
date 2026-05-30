@@ -34,6 +34,16 @@ class FakeRunner:
         return flow.CommandResult(key, Path(cwd), 0, stdout, "")
 
 
+class FailingFastForwardRunner(FakeRunner):
+    def run(self, args, cwd, *, check=True, capture=True):
+        if tuple(args[:3]) == ("git", "merge", "--ff-only"):
+            result = flow.CommandResult(tuple(args), Path(cwd), 1, "", "not a fast-forward")
+            if check:
+                raise flow.FlowError(flow.format_command_failure(result))
+            return result
+        return super().run(args, cwd, check=check, capture=capture)
+
+
 class CodexWorktreeFlowTests(unittest.TestCase):
     def test_slug_uses_first_h1(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -153,6 +163,45 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             self.assertIn("app.py", text)
             self.assertIn("Latest base behavior is presumed correct", text)
             self.assertIn("feature commit", text)
+
+    def test_post_conflict_audit_prompt_does_not_allow_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            runner = FakeRunner()
+            flow.CodexWorktreeFlow(self.config(repo, repo / "plan.md"), runner).run_audit(
+                repo,
+                repo / "plan.md",
+                post_conflict=True,
+            )
+            prompt = runner.calls[0][0][-1]
+            self.assertIn("Do not commit", prompt)
+            self.assertNotIn("commit audit fixes if changes are made", prompt.lower())
+
+    def test_finish_does_not_cleanup_if_primary_merge_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            plan = feature / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            handoff = feature / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+
+            subject = flow.CodexWorktreeFlow(self.config(repo, plan), FailingFastForwardRunner())
+            subject.cleanup = lambda *_args: (_ for _ in ()).throw(AssertionError("cleanup should not run"))
+            subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+
+            with self.assertRaises(flow.FlowError):
+                subject.finish(
+                    repo,
+                    flow.Names("plan", "feature/plan", feature, "plan-run"),
+                    plan,
+                    "Plan",
+                )
 
     def test_local_git_worktree_and_squash_merge(self) -> None:
         if not shutil.which("git"):

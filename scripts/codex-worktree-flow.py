@@ -230,6 +230,11 @@ Requirements:
 
     def run_audit(self, worktree: Path, plan_path: Path, *, post_conflict: bool = False) -> None:
         summary = HANDOFF_DIR / ("post-conflict-audit-summary.md" if post_conflict else "audit-summary.md")
+        audit_finish_instruction = (
+            "Do not commit. Leave all resolved merge state and audit fixes staged or unstaged for the workflow script to finalize."
+            if post_conflict
+            else "Commit audit fixes if changes are made."
+        )
         prompt = f"""Use the audit-worktree skill.
 
 Fresh audit pass in this worktree.
@@ -239,7 +244,8 @@ Read:
 - `{HANDOFF_DIR.as_posix()}/implementation-summary.md`
 {f"- `{HANDOFF_DIR.as_posix()}/conflict-resolution-summary.md`" if post_conflict else ""}
 
-Audit the actual diff against `{self.config.base}`. Fix confirmed issues, run relevant tests, and commit audit fixes if changes are made.
+Audit the actual diff against `{self.config.base}`. Fix confirmed issues and run relevant tests.
+{audit_finish_instruction}
 Write `{summary.as_posix()}` before finishing.
 """
         output = worktree / HANDOFF_DIR / ("post-conflict-audit-final-response.md" if post_conflict else "audit-final-response.md")
@@ -266,6 +272,7 @@ Write `{summary.as_posix()}` before finishing.
         ensure_dir(integration_worktree / HANDOFF_DIR)
         integration_plan = self.copy_integration_context(names.worktree, integration_worktree, plan_path)
 
+        integrated = False
         try:
             if self.config.merge_mode == "squash":
                 merge = self.runner.run(["git", "merge", "--squash", names.branch], integration_worktree, check=False)
@@ -283,8 +290,9 @@ Write `{summary.as_posix()}` before finishing.
             self.archive_handoff(repo, integration_worktree, names.run_id, "integration")
             self.runner.run(["git", "switch", self.config.base], repo)
             self.runner.run(["git", "merge", "--ff-only", integration_branch], repo)
+            integrated = True
         finally:
-            if not self.config.keep_worktrees:
+            if integrated and not self.config.keep_worktrees:
                 self.cleanup(repo, integration_worktree, integration_branch, names)
 
     def resolve_conflict(self, integration_worktree: Path, names: Names, plan_path: Path) -> None:
