@@ -1,24 +1,12 @@
-# User's personal loadouts (create your own from examples/)
-loadouts/*
-!loadouts/worktrees/
-loadouts/worktrees/*
-!loadouts/worktrees/.opencode/
-loadouts/worktrees/.opencode/*
-!loadouts/worktrees/.opencode/scripts/
-!loadouts/worktrees/.opencode/scripts/*.py
+# User-created loadouts are local by default
+loadouts/
 
-# Personal notes
+# Local/generated docs and notes
 docs/
 
 # Local harness settings (user-specific permissions)
-/CLAUDE.md
-/.claude/
-/.opencode/
-/.codex/*
-!/.codex/scripts/
-!/.codex/scripts/*.py
-/.agents/
-/.gemini/
+.codex/
+AGENTS.md
 
 # OS
 Thumbs.db
@@ -26,6 +14,7 @@ Thumbs.db
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 
 # Editor
