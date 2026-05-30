@@ -1,6 +1,6 @@
 # Codex Worktree Flow
 
-`scripts/codex-worktree-flow.py` runs the repeatable part of the workflow after you have an approved plan:
+`.codex/scripts/codex-worktree-flow.py` runs the repeatable part of the workflow after you have an approved plan:
 
 1. Creates a feature branch and Git worktree from `main`.
 2. Runs Codex implementation in that worktree.
@@ -15,23 +15,23 @@
 Create and approve a plan in Codex plan mode, save it as Markdown, then run:
 
 ```powershell
-python .\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md
+python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md
 ```
 
 Common options:
 
 ```powershell
 # Show Git/Codex commands without running them
-python .\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --dry-run
+python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --dry-run
 
 # Implement and audit, but stop before merging
-python .\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --merge-mode stop
+python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --merge-mode stop
 
 # Keep feature/integration worktrees after completion
-python .\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --keep-worktrees
+python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --keep-worktrees
 
 # Use a non-main base branch
-python .\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --base develop
+python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md --base develop
 ```
 
 ## Required Skills

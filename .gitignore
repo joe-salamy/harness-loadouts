@@ -2,10 +2,10 @@
 loadouts/*
 !loadouts/worktrees/
 loadouts/worktrees/*
-!loadouts/worktrees/.opencode/
-loadouts/worktrees/.opencode/*
-!loadouts/worktrees/.opencode/scripts/
-!loadouts/worktrees/.opencode/scripts/*.py
+!loadouts/worktrees/.codex/
+loadouts/worktrees/.codex/*
+!loadouts/worktrees/.codex/scripts/
+!loadouts/worktrees/.codex/scripts/*.py
 
 # Personal notes
 docs/
@@ -13,10 +13,10 @@ docs/
 # Local harness settings (user-specific permissions)
 /CLAUDE.md
 /.claude/
-/.opencode/*
-!/.opencode/scripts/
-!/.opencode/scripts/*.py
-/.codex/
+/.opencode/
+/.codex/*
+!/.codex/scripts/
+!/.codex/scripts/*.py
 /.agents/
 /.gemini/
 
