@@ -21,4 +21,4 @@ Loadout management system for Claude Code projects. A loadout is a reusable conf
 ## Harness Scripts
 
 - Keep canonical Codex tooling scripts in `.codex/scripts/`.
-- When changing any script in `.codex/scripts/`, copy the same change to the exported loadout copy in `loadouts/worktrees/.codex/scripts/`.
+- When changing any script in `.codex/scripts/`, copy the same change to the exported opencode loadout copy in `loadouts/worktrees/.opencode/scripts/`.

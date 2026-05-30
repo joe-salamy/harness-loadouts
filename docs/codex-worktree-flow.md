@@ -1,6 +1,6 @@
 # Codex Worktree Flow
 
-`.codex/scripts/codex-worktree-flow.py` runs the repeatable part of the workflow after you have an approved plan:
+`codex-worktree-flow.py` runs the repeatable part of the workflow after you have an approved plan. In this repo, the script lives at `.codex/scripts/codex-worktree-flow.py`; in the exported opencode worktree loadout, the copy lives at `.opencode/scripts/codex-worktree-flow.py`.
 
 1. Creates a feature branch and Git worktree from `main`.
 2. Runs Codex implementation in that worktree.
@@ -17,6 +17,14 @@ Create and approve a plan in Codex plan mode, save it as Markdown, then run:
 ```powershell
 python .\.codex\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md
 ```
+
+After applying the worktrees loadout to another repo with the default opencode harness, run the exported copy from that target repo:
+
+```powershell
+python .\.opencode\scripts\codex-worktree-flow.py --plan docs\plans\my-plan.md
+```
+
+The options below are the same for both locations; use `.codex\scripts` in this repo and `.opencode\scripts` in repos that received the opencode loadout.
 
 Common options:
 

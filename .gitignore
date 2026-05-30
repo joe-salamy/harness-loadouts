@@ -2,10 +2,10 @@
 loadouts/*
 !loadouts/worktrees/
 loadouts/worktrees/*
-!loadouts/worktrees/.codex/
-loadouts/worktrees/.codex/*
-!loadouts/worktrees/.codex/scripts/
-!loadouts/worktrees/.codex/scripts/*.py
+!loadouts/worktrees/.opencode/
+loadouts/worktrees/.opencode/*
+!loadouts/worktrees/.opencode/scripts/
+!loadouts/worktrees/.opencode/scripts/*.py
 
 # Personal notes
 docs/
