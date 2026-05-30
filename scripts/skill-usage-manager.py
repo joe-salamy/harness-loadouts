@@ -21,11 +21,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-
 REPO_SKILL_DIRS = (".agents/skills", ".opencode/skills", ".claude/skills")
 DEFAULT_THRESHOLD = 100
 DEFAULT_MIN_ACTIVE = 8
-DEFAULT_PINNED_USER = {"skill-creator", "skill-installer", "openai-docs", "skill-usage-manager"}
+DEFAULT_PINNED_USER = {
+    "skill-creator",
+    "skill-installer",
+    "openai-docs",
+    "skill-usage-manager",
+}
 DEFAULT_PINNED_REPO = {"skill-usage-manager"}
 MARKER = "<!-- skill-usage-manager:record -->"
 
@@ -40,7 +44,12 @@ class SkillRoot:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def canonical(path: Path) -> str:
@@ -62,7 +71,9 @@ def load_json(path: Path) -> dict[str, Any]:
 def save_json_atomic(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(data, indent=2, sort_keys=True) + "\n"
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, delete=False
+    ) as handle:
         handle.write(encoded)
         temp_name = handle.name
     os.replace(temp_name, path)
@@ -100,7 +111,9 @@ def repo_ledger_path(repo_root: Path) -> Path:
     return repo_root / ".skill-usage.json"
 
 
-def infer_repo_root_from_skills_dir(skills_dir: Path, explicit_repo: Path | None = None) -> Path:
+def infer_repo_root_from_skills_dir(
+    skills_dir: Path, explicit_repo: Path | None = None
+) -> Path:
     if explicit_repo:
         return explicit_repo.expanduser().resolve()
     parts = skills_dir.resolve().parts
@@ -115,7 +128,9 @@ def infer_repo_root_from_skills_dir(skills_dir: Path, explicit_repo: Path | None
     return Path.cwd().resolve()
 
 
-def make_root(scope: str, skills_dir: Path | None = None, repo: Path | None = None) -> SkillRoot:
+def make_root(
+    scope: str, skills_dir: Path | None = None, repo: Path | None = None
+) -> SkillRoot:
     if scope == "user":
         active = (skills_dir or default_user_skills_dir()).expanduser().resolve()
         return SkillRoot(
@@ -125,7 +140,7 @@ def make_root(scope: str, skills_dir: Path | None = None, repo: Path | None = No
             ledger_path=user_ledger_path(active),
         )
 
-    active = (skills_dir.expanduser().resolve() if skills_dir else None)
+    active = skills_dir.expanduser().resolve() if skills_dir else None
     repo_root = infer_repo_root_from_skills_dir(active or (repo or Path.cwd()), repo)
     if active is None:
         raise ValueError("repo scope requires a concrete skills directory")
@@ -143,10 +158,18 @@ def discover_roots(args: argparse.Namespace, scopes: Iterable[str]) -> list[Skil
     scope_set = set(scopes)
 
     if "user" in scope_set:
-        roots.append(make_root("user", Path(args.user_skills_dir) if args.user_skills_dir else None))
+        roots.append(
+            make_root(
+                "user", Path(args.user_skills_dir) if args.user_skills_dir else None
+            )
+        )
 
     if "repo" in scope_set:
-        repo_root = Path(args.repo).expanduser().resolve() if args.repo else get_git_root(Path.cwd()) or Path.cwd().resolve()
+        repo_root = (
+            Path(args.repo).expanduser().resolve()
+            if args.repo
+            else get_git_root(Path.cwd()) or Path.cwd().resolve()
+        )
         if args.repo_skills_dir:
             candidates = [Path(args.repo_skills_dir).expanduser().resolve()]
         else:
@@ -220,13 +243,19 @@ def skill_dirs(root: SkillRoot) -> list[Path]:
     if not root.skills_dir.exists():
         return []
     return sorted(
-        [path for path in root.skills_dir.iterdir() if path.is_dir() and (path / "SKILL.md").exists()],
+        [
+            path
+            for path in root.skills_dir.iterdir()
+            if path.is_dir() and (path / "SKILL.md").exists()
+        ],
         key=lambda path: path.name.lower(),
     )
 
 
 def record(args: argparse.Namespace) -> int:
-    root = make_root(args.scope, Path(args.path), Path(args.repo).resolve() if args.repo else None)
+    root = make_root(
+        args.scope, Path(args.path), Path(args.repo).resolve() if args.repo else None
+    )
     data = load_json(root.ledger_path)
     scope_data = ensure_scope(data, root)
     scope_data["total_loads"] = int(scope_data.get("total_loads", 0)) + 1
@@ -240,7 +269,9 @@ def record(args: argparse.Namespace) -> int:
     entry["load_count"] = int(entry.get("load_count", 0)) + 1
     entry["source_path"] = canonical(root.skills_dir / args.skill_name)
     entry["archived_at"] = None
-    entry["pinned"] = args.skill_name in read_pins(root, data) or bool(entry.get("pinned", False))
+    entry["pinned"] = args.skill_name in read_pins(root, data) or bool(
+        entry.get("pinned", False)
+    )
 
     save_json_atomic(root.ledger_path, data)
     return 0
@@ -313,7 +344,11 @@ def scan(args: argparse.Namespace) -> int:
             entry = skills.get(path.name, {})
             last_index = entry.get("last_load_index", "never")
             load_count = entry.get("load_count", 0)
-            pin = " pinned" if path.name in read_pins(root, data) or entry.get("pinned") else ""
+            pin = (
+                " pinned"
+                if path.name in read_pins(root, data) or entry.get("pinned")
+                else ""
+            )
             print(f"  - {path.name}: loads={load_count}, last={last_index}{pin}")
     return 0
 
@@ -365,9 +400,19 @@ def prune(args: argparse.Namespace) -> int:
 
 def restore(args: argparse.Namespace) -> int:
     if args.path:
-        roots = [make_root(args.scope, Path(args.path), Path(args.repo).resolve() if args.repo else None)]
+        roots = [
+            make_root(
+                args.scope,
+                Path(args.path),
+                Path(args.repo).resolve() if args.repo else None,
+            )
+        ]
     elif args.scope == "user":
-        roots = [make_root("user", Path(args.user_skills_dir) if args.user_skills_dir else None)]
+        roots = [
+            make_root(
+                "user", Path(args.user_skills_dir) if args.user_skills_dir else None
+            )
+        ]
     else:
         roots = discover_roots(args, ["repo"])
 
@@ -375,8 +420,20 @@ def restore(args: argparse.Namespace) -> int:
         if not root.archive_dir.exists():
             continue
 
-        matches = sorted(root.archive_dir.glob(f"{args.skill_name}*"), key=lambda path: path.stat().st_mtime, reverse=True)
-        matches = [path for path in matches if path.is_dir() and (path.name == args.skill_name or path.name.startswith(args.skill_name + "."))]
+        matches = sorted(
+            root.archive_dir.glob(f"{args.skill_name}*"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        matches = [
+            path
+            for path in matches
+            if path.is_dir()
+            and (
+                path.name == args.skill_name
+                or path.name.startswith(args.skill_name + ".")
+            )
+        ]
         if not matches:
             continue
 
@@ -419,7 +476,7 @@ def record_instruction(skill_name: str, root: SkillRoot) -> str:
     return (
         f"{MARKER}\n"
         "When this skill is loaded, first run "
-        f"`\"{python_exe}\" \"{script}\" record \"{skill_name}\" --scope {root.scope} --path \"{root.skills_dir}\"{repo_arg}`.\n\n"
+        f'`"{python_exe}" "{script}" record "{skill_name}" --scope {root.scope} --path "{root.skills_dir}"{repo_arg}`.\n\n'
     )
 
 
@@ -428,7 +485,12 @@ def instrument_file(skill_md: Path, root: SkillRoot) -> bool:
     if MARKER in text:
         return False
     frontmatter, body = split_frontmatter(text)
-    new_text = frontmatter + ("\n" if frontmatter and not body.startswith("\n") else "") + record_instruction(skill_md.parent.name, root) + body.lstrip("\n")
+    new_text = (
+        frontmatter
+        + ("\n" if frontmatter and not body.startswith("\n") else "")
+        + record_instruction(skill_md.parent.name, root)
+        + body.lstrip("\n")
+    )
     skill_md.write_text(new_text, encoding="utf-8", newline="")
     return True
 
@@ -450,7 +512,9 @@ def instrument(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Track and prune user/repo Codex skills.")
+    parser = argparse.ArgumentParser(
+        description="Track and prune user/repo Codex skills."
+    )
     parser.add_argument("--repo", help="Repository root for repo-scope operations.")
     parser.add_argument("--user-skills-dir", help="Override user skill directory.")
     parser.add_argument("--repo-skills-dir", help="Override repo skill directory.")
@@ -461,11 +525,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    def add_discovery_options(sub: argparse.ArgumentParser, include_repo: bool = True) -> None:
+    def add_discovery_options(
+        sub: argparse.ArgumentParser, include_repo: bool = True
+    ) -> None:
         if include_repo:
-            sub.add_argument("--repo", default=argparse.SUPPRESS, help="Repository root for repo-scope operations.")
-        sub.add_argument("--user-skills-dir", default=argparse.SUPPRESS, help="Override user skill directory.")
-        sub.add_argument("--repo-skills-dir", default=argparse.SUPPRESS, help="Override repo skill directory.")
+            sub.add_argument(
+                "--repo",
+                default=argparse.SUPPRESS,
+                help="Repository root for repo-scope operations.",
+            )
+        sub.add_argument(
+            "--user-skills-dir",
+            default=argparse.SUPPRESS,
+            help="Override user skill directory.",
+        )
+        sub.add_argument(
+            "--repo-skills-dir",
+            default=argparse.SUPPRESS,
+            help="Override repo skill directory.",
+        )
         sub.add_argument(
             "--include-loadout-templates",
             action="store_true",
@@ -476,11 +554,17 @@ def build_parser() -> argparse.ArgumentParser:
     record_parser = subparsers.add_parser("record", help="Record one skill load.")
     record_parser.add_argument("skill_name")
     record_parser.add_argument("--scope", choices=["user", "repo"], required=True)
-    record_parser.add_argument("--path", required=True, help="Active skills directory containing the skill.")
+    record_parser.add_argument(
+        "--path", required=True, help="Active skills directory containing the skill."
+    )
     record_parser.add_argument("--repo", help="Repository root for repo scope.")
     record_parser.set_defaults(func=record)
 
-    for name, help_text in (("scan", "List skills and usage."), ("prune", "Report or archive stale skills."), ("instrument", "Add record instructions to SKILL.md files.")):
+    for name, help_text in (
+        ("scan", "List skills and usage."),
+        ("prune", "Report or archive stale skills."),
+        ("instrument", "Add record instructions to SKILL.md files."),
+    ):
         sub = subparsers.add_parser(name, help=help_text)
         add_discovery_options(sub)
         sub.add_argument("--scope", choices=["user", "repo", "all"], default="all")
@@ -491,11 +575,15 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--apply", action="store_true")
         sub.set_defaults(func=globals()[name])
 
-    restore_parser = subparsers.add_parser("restore", help="Restore one archived skill.")
+    restore_parser = subparsers.add_parser(
+        "restore", help="Restore one archived skill."
+    )
     restore_parser.add_argument("skill_name")
     add_discovery_options(restore_parser, include_repo=False)
     restore_parser.add_argument("--scope", choices=["user", "repo"], required=True)
-    restore_parser.add_argument("--path", help="Active skills directory to restore into.")
+    restore_parser.add_argument(
+        "--path", help="Active skills directory to restore into."
+    )
     restore_parser.add_argument("--repo", help="Repository root for repo scope.")
     restore_parser.set_defaults(func=restore)
 

@@ -28,12 +28,12 @@ mkdir loadouts/my-loadout
 
 ## Harness Conventions
 
-| Harness  | Instructions | Skills              | Hooks/config                         | Agents/commands              |
-| -------- | ------------ | ------------------- | ------------------------------------ | ---------------------------- |
-| opencode | `AGENTS.md`  | `.opencode/skills/` | `opencode.json`, `.opencode/plugins/` | `.opencode/agents/`          |
-| codex    | `AGENTS.md`  | `.agents/skills/`   | `.codex/hooks.json`, `.codex/config.toml` | `.codex/agents/`        |
-| gemini   | `GEMINI.md`  | n/a                 | `.gemini/settings.json`, `.gemini/hooks/` | `.gemini/commands/`     |
-| claude-code | `CLAUDE.md` | `.claude/skills/` | `.claude/settings.local.json`, `.claude/hooks.json` | n/a |
+| Harness     | Instructions | Skills              | Hooks/config                                        | Agents/commands     |
+| ----------- | ------------ | ------------------- | --------------------------------------------------- | ------------------- |
+| opencode    | `AGENTS.md`  | `.opencode/skills/` | `opencode.json`, `.opencode/plugins/`               | `.opencode/agents/` |
+| codex       | `AGENTS.md`  | `.agents/skills/`   | `.codex/hooks.json`, `.codex/config.toml`           | `.codex/agents/`    |
+| gemini      | `GEMINI.md`  | n/a                 | `.gemini/settings.json`, `.gemini/hooks/`           | `.gemini/commands/` |
+| claude-code | `CLAUDE.md`  | `.claude/skills/`   | `.claude/settings.local.json`, `.claude/hooks.json` | n/a                 |
 
 Anything else in a loadout is copied recursively at the matching path. This includes `.git/hooks/`, local scripts, docs, and other support files.
 
