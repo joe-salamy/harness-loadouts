@@ -109,30 +109,45 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
             self.assertTrue((skills / "openai-docs").exists())
 
-    def test_instrument_preserves_frontmatter_and_is_idempotent(self) -> None:
+    def test_instrument_removes_legacy_instruction_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             skills = Path(temp) / ".codex" / "skills"
-            make_skill(skills, "example")
+            skill_dir = make_skill(skills, "example")
+            skill_md = skill_dir / "SKILL.md"
+            text = skill_md.read_text(encoding="utf-8")
+            skill_md.write_text(
+                text.replace(
+                    "# example\n",
+                    (
+                        f"{manager.MARKER}\n"
+                        "When this skill is loaded, first run "
+                        '`"python" "skill-usage-manager.py" record "example" --scope user --path "skills"`.\n\n'
+                        "# example\n"
+                    ),
+                ),
+                encoding="utf-8",
+            )
 
             manager.main(["--user-skills-dir", str(skills), "instrument", "--scope", "user"])
             manager.main(["--user-skills-dir", str(skills), "instrument", "--scope", "user"])
 
             text = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
             self.assertTrue(text.startswith("---\nname: example\n"))
-            self.assertEqual(text.count(manager.MARKER), 1)
-            self.assertIn('record "example" --scope user', text)
+            self.assertNotIn(manager.MARKER, text)
+            self.assertNotIn('record "example" --scope user', text)
+            self.assertIn("# example\n", text)
 
-    def test_repo_instrument_records_with_resolved_repo_root(self) -> None:
+    def test_repo_instrument_leaves_uninstrumented_skill_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             skills = repo / "loadouts" / "python" / ".opencode" / "skills"
             make_skill(skills, "example")
+            before = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
 
             manager.main(["--repo", str(repo), "--include-loadout-templates", "instrument", "--scope", "repo"])
 
-            text = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn('record "example" --scope repo', text)
-            self.assertIn(f'--repo "{repo.resolve()}"', text)
+            after = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertEqual(after, before)
 
     def test_restore_moves_archived_skill_back(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

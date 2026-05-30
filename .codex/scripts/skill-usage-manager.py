@@ -2,7 +2,7 @@
 """Track Codex skill usage and archive stale skills.
 
 The manager is intentionally conservative:
-- usage is recorded explicitly from SKILL.md instrumentation,
+- usage is recorded explicitly from centralized AGENTS.md instructions,
 - pruning is dry-run unless --apply is passed,
 - skills are moved to sibling archive directories, never deleted.
 """
@@ -459,38 +459,35 @@ def restore(args: argparse.Namespace) -> int:
     return 1
 
 
-def split_frontmatter(text: str) -> tuple[str, str]:
+def remove_legacy_record_instruction(text: str) -> tuple[str, bool]:
+    if MARKER not in text:
+        return text, False
+
     lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return "", text
-    for idx in range(1, len(lines)):
-        if lines[idx].strip() == "---":
-            return "".join(lines[: idx + 1]), "".join(lines[idx + 1 :])
-    return "", text
+    cleaned: list[str] = []
+    removed = False
+    idx = 0
+    while idx < len(lines):
+        if lines[idx].strip() != MARKER:
+            cleaned.append(lines[idx])
+            idx += 1
+            continue
+
+        removed = True
+        idx += 1
+        if idx < len(lines) and "When this skill is loaded" in lines[idx]:
+            idx += 1
+        if idx < len(lines) and not lines[idx].strip():
+            idx += 1
+
+    return "".join(cleaned), removed
 
 
-def record_instruction(skill_name: str, root: SkillRoot) -> str:
-    script = Path(__file__).resolve()
-    python_exe = sys.executable or "python"
-    repo_arg = f' --repo "{root.repo_root}"' if root.repo_root else ""
-    return (
-        f"{MARKER}\n"
-        "When this skill is loaded, first run "
-        f'`"{python_exe}" "{script}" record "{skill_name}" --scope {root.scope} --path "{root.skills_dir}"{repo_arg}`.\n\n'
-    )
-
-
-def instrument_file(skill_md: Path, root: SkillRoot) -> bool:
+def instrument_file(skill_md: Path, _root: SkillRoot) -> bool:
     text = skill_md.read_text(encoding="utf-8")
-    if MARKER in text:
+    new_text, changed = remove_legacy_record_instruction(text)
+    if not changed:
         return False
-    frontmatter, body = split_frontmatter(text)
-    new_text = (
-        frontmatter
-        + ("\n" if frontmatter and not body.startswith("\n") else "")
-        + record_instruction(skill_md.parent.name, root)
-        + body.lstrip("\n")
-    )
     skill_md.write_text(new_text, encoding="utf-8", newline="")
     return True
 
@@ -504,10 +501,10 @@ def instrument(args: argparse.Namespace) -> int:
             skill_md = path / "SKILL.md"
             if instrument_file(skill_md, root):
                 changed += 1
-                print(f"  instrumented {path.name}")
+                print(f"  removed legacy instruction from {path.name}")
             else:
-                print(f"  already instrumented {path.name}")
-    print(f"Instrumented {changed} skill(s).")
+                print(f"  no legacy instruction in {path.name}")
+    print(f"Cleaned {changed} skill(s).")
     return 0
 
 
@@ -563,7 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("scan", "List skills and usage."),
         ("prune", "Report or archive stale skills."),
-        ("instrument", "Add record instructions to SKILL.md files."),
+        ("instrument", "Remove legacy record instructions from SKILL.md files."),
     ):
         sub = subparsers.add_parser(name, help=help_text)
         add_discovery_options(sub)

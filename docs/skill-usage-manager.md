@@ -1,34 +1,33 @@
 # Skill Usage Manager
 
-`skill-usage-manager.py` has two main jobs. In this repo, the script lives at `.codex/scripts/skill-usage-manager.py`; in the exported opencode worktree loadout, the copy lives at `.opencode/scripts/skill-usage-manager.py`.
+`skill-usage-manager.py` has two main jobs. In this repo, the script lives at `.codex/scripts/skill-usage-manager.py`; in exported loadouts, use the copy under the target repo's active harness directory, usually `.opencode/scripts/skill-usage-manager.py` or `.codex/scripts/skill-usage-manager.py`.
 
-1. Skills call it to record that they were loaded.
+1. AGENTS.md tells Codex to call it whenever a skill is loaded.
 2. Users call it to review, prune, or restore skills.
 
 ## Usage Logging
 
-Run `instrument` once to add a lightweight recording instruction to each managed
-`SKILL.md`:
+Usage logging is centralized in AGENTS.md, not repeated in every `SKILL.md`.
+The repo AGENTS.md uses this repo's `.codex\scripts` path; exported loadouts
+should use the target repo's active harness script path.
 
-```powershell
-python .\.codex\scripts\skill-usage-manager.py instrument --scope all
-```
-
-After applying the worktrees loadout to another repo with the default opencode harness, use the exported copy from that target repo:
-
-```powershell
-python .\.opencode\scripts\skill-usage-manager.py instrument --scope all
-```
-
-The commands below use this repo's `.codex\scripts` path; use `.opencode\scripts` for repos that received the opencode loadout.
-
-After instrumentation, each skill tells Codex to run the manager's `record`
-command when the skill is loaded:
+When loading a user skill, Codex records it with:
 
 ```powershell
 python .\.codex\scripts\skill-usage-manager.py record <skill-name> --scope user --path <skills-dir>
+```
+
+When loading a repo skill, Codex records it with:
+
+```powershell
 python .\.codex\scripts\skill-usage-manager.py record <skill-name> --scope repo --path <skills-dir> --repo <repo-root>
 ```
+
+For repos that received an opencode loadout, use the same commands with
+`.\.opencode\scripts\skill-usage-manager.py`.
+
+The `instrument` command is retained only as a cleanup helper. It removes legacy
+per-skill recording instructions from managed `SKILL.md` files.
 
 The ledger is stored at:
 

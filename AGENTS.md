@@ -18,6 +18,12 @@ Loadout management system for Claude Code projects. A loadout is a reusable conf
 
 - Keep READMEs concise.
 
+## Skill Usage Logging
+
+- When loading any skill, record the load with `.codex/scripts/skill-usage-manager.py` instead of relying on per-skill instructions.
+- Use `python .\.codex\scripts\skill-usage-manager.py record <skill-name> --scope user --path <skills-dir>` for user skills.
+- Use `python .\.codex\scripts\skill-usage-manager.py record <skill-name> --scope repo --path <skills-dir> --repo <repo-root>` for repo skills.
+
 ## Harness Scripts
 
 - Keep canonical Codex tooling scripts in `.codex/scripts/`.
