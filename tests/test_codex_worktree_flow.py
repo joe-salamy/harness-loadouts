@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".codex" / "scripts" / "codex-worktree-flow.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".codex" / "scripts" / "worktree-flow.py"
 SPEC = importlib.util.spec_from_file_location("codex_worktree_flow", SCRIPT_PATH)
 flow = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -44,7 +44,7 @@ class FailingFastForwardRunner(FakeRunner):
         return super().run(args, cwd, check=check, capture=capture)
 
 
-class CodexWorktreeFlowTests(unittest.TestCase):
+class HarnessWorktreeFlowTests(unittest.TestCase):
     def test_slug_uses_first_h1(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             plan = Path(temp) / "plan.md"
@@ -69,7 +69,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
                 }
             )
             config = self.config(repo, repo / "plan.md")
-            names = flow.CodexWorktreeFlow(config, runner).unique_feature_names(repo, "example")
+            names = flow.HarnessWorktreeFlow(config, runner).unique_feature_names(repo, "example")
             self.assertEqual(names.branch, "feature/example-2")
             self.assertEqual(names.worktree.name, "repo-example-2")
 
@@ -83,7 +83,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             plan.write_text("# Plan", encoding="utf-8")
             target.write_text("# Plan", encoding="utf-8")
-            actual = flow.CodexWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "plan")
+            actual = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "plan")
             self.assertEqual(actual, target)
 
     def test_plan_outside_repo_is_copied(self) -> None:
@@ -94,18 +94,19 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             repo.mkdir()
             worktree.mkdir()
             plan.write_text("# External", encoding="utf-8")
-            actual = flow.CodexWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "external")
+            actual = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "external")
             self.assertEqual(actual, worktree / "docs" / "plans" / "external.md")
             self.assertEqual(actual.read_text(encoding="utf-8"), "# External")
 
-    def test_codex_command_includes_model_and_output_file(self) -> None:
+    def test_harness_command_includes_model_and_output_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             plan = repo / "plan.md"
             config = self.config(repo, plan, model="gpt-5")
             runner = FakeRunner()
-            flow.CodexWorktreeFlow(config, runner).codex_exec(repo, "Prompt", repo / "out.md")
+            flow.HarnessWorktreeFlow(config, runner).harness_exec(repo, "Prompt", repo / "out.md")
             args = runner.calls[0][0]
+            self.assertEqual(args[:2], ("codex", "exec"))
             self.assertIn("--model", args)
             self.assertIn("gpt-5", args)
             self.assertIn("--output-last-message", args)
@@ -132,7 +133,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
                 }
             )
             config = self.config(repo, plan, merge_mode="stop")
-            subject = flow.CodexWorktreeFlow(config, runner)
+            subject = flow.HarnessWorktreeFlow(config, runner)
             subject.create_feature_worktree = lambda _repo, _names: None
             subject.run_implementation = lambda _worktree, _plan: None
             subject.run_audit = lambda _worktree, _plan: None
@@ -155,7 +156,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
                     ("git", "log", "--oneline", "abc123..feature/plan"): "feature commit\n",
                 }
             )
-            text = flow.CodexWorktreeFlow(self.config(repo, plan), runner).conflict_context(
+            text = flow.HarnessWorktreeFlow(self.config(repo, plan), runner).conflict_context(
                 repo,
                 flow.Names("plan", "feature/plan", repo, "plan-run"),
                 plan,
@@ -169,7 +170,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             repo = Path(temp) / "repo"
             repo.mkdir()
             runner = FakeRunner()
-            flow.CodexWorktreeFlow(self.config(repo, repo / "plan.md"), runner).run_audit(
+            flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner).run_audit(
                 repo,
                 repo / "plan.md",
                 post_conflict=True,
@@ -191,7 +192,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
             (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
 
-            subject = flow.CodexWorktreeFlow(self.config(repo, plan), FailingFastForwardRunner())
+            subject = flow.HarnessWorktreeFlow(self.config(repo, plan), FailingFastForwardRunner())
             subject.cleanup = lambda *_args: (_ for _ in ()).throw(AssertionError("cleanup should not run"))
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
 
@@ -224,7 +225,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             integration = Path(temp) / "repo-integration"
             subprocess.run(["git", "worktree", "add", str(integration), "-b", "integration/test", "main"], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "merge", "--squash", "feature/test"], cwd=integration, check=True, capture_output=True)
-            subprocess.run(["git", "commit", "-m", "Codex: test"], cwd=integration, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "Harness: test"], cwd=integration, check=True, capture_output=True)
             subprocess.run(["git", "switch", "main"], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "merge", "--ff-only", "integration/test"], cwd=repo, check=True, capture_output=True)
 
@@ -243,6 +244,7 @@ class CodexWorktreeFlowTests(unittest.TestCase):
             plan=plan,
             base="main",
             model=model,
+            harness="codex",
             merge_mode=merge_mode,
             keep_worktrees=False,
             yes=True,

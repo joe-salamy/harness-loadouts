@@ -3,10 +3,9 @@
     Apply an agent harness loadout to a target repository.
 .DESCRIPTION
     Copies instructions, skills, hooks, agents, commands, and other files from
-    a loadout template into a target repo. The selected harness controls the
-    conventional filenames and config directories.
-.EXAMPLE
-    .\harness-init.ps1 -Loadout python -Target C:\path\to\repo
+    a harness-agnostic loadout template into a target repo. Templates use
+    AGENTS.md and .harness/; the required -Harness flag controls the target
+    config directory.
 .EXAMPLE
     .\harness-init.ps1 -Loadout python -Target C:\path\to\repo -Harness codex
 .EXAMPLE
@@ -15,8 +14,8 @@
 param(
     [string]$Loadout,
     [string]$Target = ".",
-    [ValidateSet("opencode", "codex", "gemini", "claude-code")]
-    [string]$Harness = "opencode",
+    [ValidateSet("opencode", "codex", "gemini", "claude", "claude-code", "omp")]
+    [string]$Harness,
     [switch]$List
 )
 
@@ -37,52 +36,37 @@ function Join-RepoPath {
 function Get-HarnessProfile {
     param([string]$Name)
 
-    switch ($Name) {
-        "opencode" {
-            return [PSCustomObject]@{
-                Name = "opencode"
-                InstructionFile = "AGENTS.md"
-                InstructionAliases = @("CLAUDE.md", "GEMINI.md")
-                ConfigDirs = @(".opencode")
-                SkillsPath = ".opencode/skills"
-                SkillSourcePaths = @(".opencode/skills", ".agents/skills", ".claude/skills")
-                HookConfigPath = $null
-            }
-        }
+    $normalizedName = if ($Name -eq "claude-code") { "claude" } else { $Name }
+    $configDir = ".$normalizedName"
+    $hookConfigPath = $null
+    $hookSourcePaths = @(".harness/hooks.json")
+
+    switch ($normalizedName) {
         "codex" {
-            return [PSCustomObject]@{
-                Name = "codex"
-                InstructionFile = "AGENTS.md"
-                InstructionAliases = @("CLAUDE.md", "GEMINI.md")
-                ConfigDirs = @(".codex", ".agents")
-                SkillsPath = ".agents/skills"
-                SkillSourcePaths = @(".agents/skills", ".opencode/skills", ".claude/skills")
-                HookConfigPath = ".codex/hooks.json"
-            }
+            $hookConfigPath = ".codex/hooks.json"
+            $hookSourcePaths += @(".codex/hooks.json")
         }
         "gemini" {
-            return [PSCustomObject]@{
-                Name = "gemini"
-                InstructionFile = "GEMINI.md"
-                InstructionAliases = @("AGENTS.md", "CLAUDE.md")
-                ConfigDirs = @(".gemini")
-                SkillsPath = $null
-                SkillSourcePaths = @()
-                HookConfigPath = ".gemini/settings.json"
-            }
+            $hookConfigPath = ".gemini/settings.json"
+            $hookSourcePaths += @(".gemini/settings.json")
         }
-        "claude-code" {
-            return [PSCustomObject]@{
-                Name = "claude-code"
-                InstructionFile = "CLAUDE.md"
-                InstructionAliases = @("AGENTS.md", "GEMINI.md")
-                ConfigDirs = @(".claude")
-                SkillsPath = ".claude/skills"
-                SkillSourcePaths = @(".claude/skills", ".opencode/skills", ".agents/skills")
-                HookConfigPath = ".claude/settings.local.json"
-                HookSourcePaths = @(".claude/settings.local.json", ".claude/hooks.json")
-            }
+        "claude" {
+            $hookConfigPath = ".claude/settings.local.json"
+            $hookSourcePaths += @(".claude/settings.local.json", ".claude/hooks.json")
         }
+    }
+
+    return [PSCustomObject]@{
+        Name = $normalizedName
+        InstructionFile = "AGENTS.md"
+        InstructionAliases = @("CLAUDE.md", "GEMINI.md")
+        TemplateConfigDir = ".harness"
+        ConfigDir = $configDir
+        ConfigDirs = @($configDir)
+        SkillsPath = "$configDir/skills"
+        SkillSourcePaths = @(".harness/skills", "$configDir/skills", ".opencode/skills", ".codex/skills", ".agents/skills", ".claude/skills")
+        HookConfigPath = $hookConfigPath
+        HookSourcePaths = $hookSourcePaths
     }
 }
 
@@ -310,12 +294,17 @@ if ($List) {
     Write-Host "Available loadouts:"
     Get-ChildItem -Path $LoadoutsDir -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }
     Write-Host ""
-    Write-Host "Harnesses: opencode (default), codex, gemini, claude-code"
+    Write-Host "Harnesses: opencode, codex, gemini, claude (alias: claude-code), omp"
     exit 0
 }
 
 if (-not $Loadout) {
     Write-Host "Error: -Loadout is required. Use -List to see available loadouts." -ForegroundColor Red
+    exit 1
+}
+
+if (-not $Harness) {
+    Write-Host "Error: -Harness is required. Supported values: opencode, codex, gemini, claude, claude-code, omp." -ForegroundColor Red
     exit 1
 }
 
@@ -382,7 +371,7 @@ if ($profile.HookConfigPath) {
     if ($profile.PSObject.Properties["HookSourcePaths"]) {
         foreach ($hookSourcePath in $profile.HookSourcePaths) {
             $sourceParts = $hookSourcePath -split "[/\\]"
-            if ($sourceParts[0] -eq $configDir) {
+            if ($sourceParts[0] -eq $configDir -or $sourceParts[0] -eq $profile.TemplateConfigDir) {
                 $sourceSkipRel = ($sourceParts[1..($sourceParts.Length - 1)] -join "/")
                 $skipByConfigDir[$configDir] = @($skipByConfigDir[$configDir]) + $sourceSkipRel
             }
@@ -390,21 +379,22 @@ if ($profile.HookConfigPath) {
     }
 }
 
-$knownHarnessDirs = @(".claude", ".opencode", ".codex", ".agents", ".gemini")
+$knownHarnessDirs = @(".harness", ".claude", ".opencode", ".codex", ".agents", ".gemini", ".omp")
 
 foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
     if ($skipTopLevel -contains $item.Name) {
         continue
     }
-    if ($item.PSIsContainer -and ($knownHarnessDirs -contains $item.Name) -and -not ($profile.ConfigDirs -contains $item.Name)) {
+    if ($item.PSIsContainer -and ($knownHarnessDirs -contains $item.Name) -and ($item.Name -ne $profile.TemplateConfigDir) -and -not ($profile.ConfigDirs -contains $item.Name)) {
         continue
     }
 
-    $destPath = Join-Path $Target $item.Name
+    $destName = if ($item.PSIsContainer -and $item.Name -eq $profile.TemplateConfigDir) { $profile.ConfigDir } else { $item.Name }
+    $destPath = Join-Path $Target $destName
     if ($item.PSIsContainer) {
         $skipRelativePaths = @()
-        if ($skipByConfigDir.ContainsKey($item.Name)) {
-            $skipRelativePaths = @($skipByConfigDir[$item.Name])
+        if ($skipByConfigDir.ContainsKey($destName)) {
+            $skipRelativePaths = @($skipByConfigDir[$destName])
         }
         Copy-DirectoryWithPrompt -Source $item.FullName -Dest $destPath -SkipRelativePaths $skipRelativePaths
     } else {

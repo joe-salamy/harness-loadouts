@@ -1,0 +1,4 @@
+interface:
+  display_name: "Finish Worktree"
+  short_description: "Merge a completed worktree branch into main and remove it safely."
+  default_prompt: "Use this skill for the completed worktree: confirm the branch is clean and committed, merge it into main, run verification, remove the worktree, delete the merged branch, and report the result."

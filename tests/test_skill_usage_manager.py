@@ -46,7 +46,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
 
             user_ledger = json.loads((user_skills.parent / "skill-usage.json").read_text(encoding="utf-8"))
-            repo_ledger = json.loads((repo / ".skill-usage.json").read_text(encoding="utf-8"))
+            repo_ledger = json.loads((repo / ".agents" / "skill-usage.json").read_text(encoding="utf-8"))
             self.assertEqual(len(user_ledger["scopes"]), 1)
             self.assertEqual(len(repo_ledger["scopes"]), 1)
             self.assertIn("reviewer", next(iter(user_ledger["scopes"].values()))["skills"])
@@ -140,7 +140,7 @@ class SkillUsageManagerTests(unittest.TestCase):
     def test_repo_instrument_leaves_uninstrumented_skill_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
-            skills = repo / "loadouts" / "python" / ".opencode" / "skills"
+            skills = repo / "loadouts" / "python" / ".harness" / "skills"
             make_skill(skills, "example")
             before = (skills / "example" / "SKILL.md").read_text(encoding="utf-8")
 

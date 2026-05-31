@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Worktree"
+  short_description: "Create a unique worktree and branch before implementing a plan."
+  default_prompt: "Use this skill for the referenced plan: derive a unique branch and worktree path from the plan itself, create the worktree from main, implement only inside that worktree, commit the result, do not merge, and return an audit-ready summary of all changes and implementation decisions."

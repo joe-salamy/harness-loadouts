@@ -1,8 +1,6 @@
 # Harness Loadouts
 
-Reusable configuration templates for AI coding harnesses. A loadout packages instructions, skills, hooks, agents, commands, and other repo-local files so you can apply a consistent setup across projects with one command.
-
-The default harness is **opencode**.
+Reusable configuration templates for AI coding harnesses. A loadout packages AGENTS.md, `.harness/` skills/scripts/config, and other repo-local files so you can apply a consistent setup across projects with one command.
 
 ## Quick Start
 
@@ -12,37 +10,39 @@ git clone <repo-url> && cd harness-loadouts
 
 # 2. Create a loadout (see examples/ for reference)
 mkdir loadouts/my-loadout
-# Add AGENTS.md, .opencode/skills, hooks, agents, commands, or other files
+# Add AGENTS.md, .harness/skills, scripts, hooks, agents, commands, or other files
 
-# 3. Apply it to a repo using the default opencode harness
-.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo
-
-# Apply a loadout for another harness
+# 3. Apply it to a repo; -Harness is required
 .\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness codex
-.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness gemini
-.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness claude-code
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness opencode
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness claude
+.\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness omp
 
-# List available loadouts
+# List available loadouts and supported harnesses
 .\harness-init.ps1 -List
 ```
 
 ## Harness Conventions
 
-| Harness     | Instructions | Skills              | Hooks/config                                        | Agents/commands     |
-| ----------- | ------------ | ------------------- | --------------------------------------------------- | ------------------- |
-| opencode    | `AGENTS.md`  | `.opencode/skills/` | `opencode.json`, `.opencode/plugins/`               | `.opencode/agents/` |
-| codex       | `AGENTS.md`  | `.agents/skills/`   | `.codex/hooks.json`, `.codex/config.toml`           | `.codex/agents/`    |
-| gemini      | `GEMINI.md`  | n/a                 | `.gemini/settings.json`, `.gemini/hooks/`           | `.gemini/commands/` |
-| claude-code | `CLAUDE.md`  | `.claude/skills/`   | `.claude/settings.local.json`, `.claude/hooks.json` | n/a                 |
+Loadout templates are harness-agnostic:
 
-Anything else in a loadout is copied recursively at the matching path. This includes `.git/hooks/`, local scripts, docs, and other support files.
+| Template path       | Applied target path   |
+| ------------------- | --------------------- |
+| `AGENTS.md`         | `AGENTS.md`           |
+| `.harness/skills/`  | `.<harness>/skills/`  |
+| `.harness/scripts/` | `.<harness>/scripts/` |
+| `.harness/...`      | `.<harness>/...`      |
+
+The selected `-Harness` value controls the target config directory. For example, `-Harness codex` maps `.harness/` to `.codex/`; `-Harness opencode` maps it to `.opencode/`.
+
+Anything else in a loadout is copied recursively at the matching path. This includes `.git/hooks/`, local docs, and other support files.
 
 ## How It Works
 
-- The harness instruction file is appended to any existing target file with a dated separator, or copied fresh if none exists.
-- Skills are copied recursively for harnesses with a known skills directory.
-- Codex hooks in `.codex/hooks.json`, Gemini hooks in `.gemini/settings.json`, and Claude hooks in `.claude/settings.local.json` are merged by hook event while preserving existing target settings.
-- opencode plugin files and any `.git/hooks/` files are copied as ordinary files/directories.
+- `-Harness` is required so the script never guesses the target harness.
+- `AGENTS.md` is appended to any existing target file with a dated separator, or copied fresh if none exists.
+- Skills are copied recursively into the selected harness directory.
+- Known harness hook/config files are merged by hook event where possible while preserving existing target settings.
 - Existing files prompt before overwrite.
 
 Earlier versions included a deprecated `claude-init.ps1` wrapper. Use `harness-init.ps1` directly.
