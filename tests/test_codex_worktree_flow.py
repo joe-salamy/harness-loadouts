@@ -241,14 +241,38 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
 
             self.assertEqual(prepared, [common_git.resolve()])
 
-    def test_harness_exec_adds_common_git_dir_as_writable_root(self) -> None:
+    def test_extra_writable_roots_include_harness_and_external_git_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             worktree = Path(temp) / "repo-feature"
             common_git = repo / ".git"
+            harness_dir = worktree / ".codex"
             repo.mkdir()
             worktree.mkdir()
             common_git.mkdir()
+            harness_dir.mkdir()
+            runner = FakeRunner(
+                {
+                    ("git", "rev-parse", "--git-common-dir"): str(common_git),
+                }
+            )
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            roots = subject.extra_writable_roots(worktree)
+
+            self.assertEqual(roots, [harness_dir.resolve(), common_git.resolve()])
+
+
+    def test_harness_exec_adds_harness_and_common_git_dirs_as_writable_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            common_git = repo / ".git"
+            harness_dir = worktree / ".codex"
+            repo.mkdir()
+            worktree.mkdir()
+            common_git.mkdir()
+            harness_dir.mkdir()
             runner = FakeRunner(
                 {
                     ("git", "rev-parse", "--git-common-dir"): str(common_git),
@@ -263,8 +287,43 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             )
 
             args = runner.calls[-1][0]
-            self.assertIn("--add-dir", args)
-            self.assertIn(str(common_git.resolve()), args)
+            writable_roots = [
+                args[index + 1]
+                for index, value in enumerate(args)
+                if value == "--add-dir"
+            ]
+            self.assertEqual(
+                writable_roots,
+                [str(harness_dir.resolve()), str(common_git.resolve())],
+            )
+
+    def test_harness_exec_uses_full_access_sandbox_on_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            with mock.patch.object(flow.os, "name", "nt"):
+                subject.harness_exec(repo, "Prompt", repo / "out.md")
+
+            args = runner.calls[-1][0]
+            sandbox_index = args.index("--sandbox")
+            self.assertEqual(args[sandbox_index + 1], "danger-full-access")
+
+    def test_harness_exec_uses_workspace_write_sandbox_off_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            with mock.patch.object(flow.os, "name", "posix"):
+                subject.harness_exec(repo, "Prompt", repo / "out.md")
+
+            args = runner.calls[-1][0]
+            sandbox_index = args.index("--sandbox")
+            self.assertEqual(args[sandbox_index + 1], "workspace-write")
 
     def test_run_prepares_primary_repo_permissions_before_logging(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

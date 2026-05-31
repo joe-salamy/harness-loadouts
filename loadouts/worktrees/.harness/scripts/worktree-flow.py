@@ -302,6 +302,11 @@ Write `{summary.as_posix()}` before finishing.
         )
         self.harness_exec(worktree, prompt, output)
 
+    def harness_sandbox_mode(self) -> str:
+        if os.name == "nt":
+            return "danger-full-access"
+        return "workspace-write"
+
     def harness_exec(self, cwd: Path, prompt: str, output_file: Path) -> None:
         self.ensure_dir(output_file.parent)
         args = [
@@ -310,7 +315,7 @@ Write `{summary.as_posix()}` before finishing.
             "--cd",
             str(cwd),
             "--sandbox",
-            "workspace-write",
+            self.harness_sandbox_mode(),
         ]
         for writable_root in self.extra_writable_roots(cwd):
             args.extend(["--add-dir", str(writable_root)])
@@ -515,14 +520,20 @@ Do not commit.
         return path.resolve()
 
     def extra_writable_roots(self, worktree: Path) -> list[Path]:
+        roots: list[Path] = []
+        harness_dir = worktree / HARNESS_DIR
+        if harness_dir.exists():
+            roots.append(harness_dir.resolve())
+
         common_dir = self.git_common_dir(worktree)
-        if common_dir is None or is_relative_to(common_dir, worktree):
-            return []
-        return [common_dir]
+        if common_dir is not None and not is_relative_to(common_dir, worktree):
+            roots.append(common_dir)
+        return roots
 
     def prepare_git_permissions(self, worktree: Path) -> None:
-        for writable_root in self.extra_writable_roots(worktree):
-            self.prepare_harness_permissions(writable_root)
+        common_dir = self.git_common_dir(worktree)
+        if common_dir is not None and not is_relative_to(common_dir, worktree):
+            self.prepare_harness_permissions(common_dir)
 
     def ensure_dir(self, path: Path) -> None:
         if self.runner.dry_run:
