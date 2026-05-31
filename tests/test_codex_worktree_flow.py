@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -161,6 +162,37 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertIn("gpt-5", args)
             self.assertIn("--output-last-message", args)
             self.assertEqual(args[-1], "Prompt")
+
+    def test_harness_exec_logs_jsonl_to_main_repo_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            repo.mkdir()
+            worktree.mkdir()
+            output_file = worktree / ".codex" / "handoff" / "implementation-final-response.md"
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), FakeRunner())
+
+            subject.start_log(repo, "plan-run")
+            subject.harness_exec(worktree, "Secret prompt", output_file)
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(log_file, subject.log_file)
+            self.assertEqual(
+                [record["event"] for record in records],
+                [
+                    "workflow_log_started",
+                    "harness_exec_start",
+                    "harness_exec_finish",
+                ],
+            )
+            self.assertEqual(records[1]["cwd"], str(worktree))
+            self.assertNotIn("Secret prompt", records[1]["command"])
+            self.assertFalse(records[2]["output_file_exists"])
+            self.assertEqual(records[2]["returncode"], 0)
 
     def test_stop_merge_mode_does_not_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

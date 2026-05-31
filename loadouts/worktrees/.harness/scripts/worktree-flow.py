@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -63,7 +64,9 @@ class CommandRunner:
                 text=True,
             )
         except OSError as exc:
-            raise FlowError(f"Failed to run command: {display}\ncwd: {cwd}\n{exc}") from exc
+            raise FlowError(
+                f"Failed to run command: {display}\ncwd: {cwd}\n{exc}"
+            ) from exc
         result = CommandResult(
             tuple(args),
             cwd,
@@ -149,6 +152,7 @@ class HarnessWorktreeFlow:
     def __init__(self, config: FlowConfig, runner: CommandRunner) -> None:
         self.config = config
         self.runner = runner
+        self.log_file: Path | None = None
 
     def run(self) -> None:
         repo = self.git_root(self.config.repo.resolve())
@@ -156,6 +160,7 @@ class HarnessWorktreeFlow:
         self.validate(repo, plan)
 
         names = self.unique_feature_names(repo, derive_slug(plan))
+        self.start_log(repo, names.run_id)
         print(f"Feature branch: {names.branch}")
         print(f"Feature worktree: {names.worktree}")
 
@@ -292,11 +297,35 @@ Write `{summary.as_posix()}` before finishing.
 
     def harness_exec(self, cwd: Path, prompt: str, output_file: Path) -> None:
         ensure_dir(output_file.parent)
-        args = [self.config.harness, "exec", "--cd", str(cwd), "--sandbox", "workspace-write"]
+        args = [
+            self.config.harness,
+            "exec",
+            "--cd",
+            str(cwd),
+            "--sandbox",
+            "workspace-write",
+        ]
         if self.config.model:
             args.extend(["--model", self.config.model])
         args.extend(["--output-last-message", str(output_file), prompt])
-        self.runner.run(args, cwd)
+        self.log_event(
+            "harness_exec_start",
+            cwd=str(cwd),
+            output_file=str(output_file),
+            command=args[:-1],
+        )
+        result = self.runner.run(args, cwd, check=False)
+        self.log_event(
+            "harness_exec_finish",
+            cwd=str(cwd),
+            output_file=str(output_file),
+            output_file_exists=output_file.exists(),
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+        if result.returncode != 0:
+            raise FlowError(format_command_failure(result))
 
     def finish(self, repo: Path, names: Names, plan_path: Path, title: str) -> None:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -512,6 +541,24 @@ Do not commit.
         # Squash merges do not mark the feature branch as merged, so force-delete
         # only after the integration branch has fast-forwarded successfully.
         self.runner.run(["git", "branch", "-D", names.branch], repo, check=False)
+
+    def start_log(self, repo: Path, run_id: str) -> None:
+        if self.runner.dry_run:
+            return
+        self.log_file = repo / HARNESS_DIR / "worktree-flow" / run_id / "workflow.jsonl"
+        ensure_dir(self.log_file.parent)
+        self.log_event("workflow_log_started", log_file=str(self.log_file))
+
+    def log_event(self, event: str, **fields: object) -> None:
+        if self.log_file is None:
+            return
+        record = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "event": event,
+            **fields,
+        }
+        with self.log_file.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def require_file(self, path: Path) -> None:
         if not path.exists() and not self.runner.dry_run:
