@@ -45,6 +45,7 @@ class CommandRunner:
         *,
         check: bool = True,
         capture: bool = True,
+        input_text: str | None = None,
     ) -> CommandResult:
         display = " ".join(args)
         print(f"+ ({cwd}) {display}")
@@ -62,6 +63,7 @@ class CommandRunner:
                 check=False,
                 capture_output=capture,
                 text=True,
+                input=input_text,
             )
         except OSError as exc:
             raise FlowError(
@@ -307,14 +309,14 @@ Write `{summary.as_posix()}` before finishing.
         ]
         if self.config.model:
             args.extend(["--model", self.config.model])
-        args.extend(["--output-last-message", str(output_file), prompt])
+        args.extend(["--output-last-message", str(output_file), "-"])
         self.log_event(
             "harness_exec_start",
             cwd=str(cwd),
             output_file=str(output_file),
             command=args[:-1],
         )
-        result = self.runner.run(args, cwd, check=False)
+        result = self.runner.run(args, cwd, check=False, input_text=prompt)
         self.log_event(
             "harness_exec_finish",
             cwd=str(cwd),

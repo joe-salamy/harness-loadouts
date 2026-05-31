@@ -23,11 +23,13 @@ class FakeRunner:
     def __init__(self, outputs: dict[tuple[str, ...], list[str] | str] | None = None) -> None:
         self.outputs = outputs or {}
         self.calls: list[tuple[tuple[str, ...], Path, bool]] = []
+        self.inputs: list[str | None] = []
         self.dry_run = False
 
-    def run(self, args, cwd, *, check=True, capture=True):
+    def run(self, args, cwd, *, check=True, capture=True, input_text=None):
         key = tuple(args)
         self.calls.append((key, Path(cwd), check))
+        self.inputs.append(input_text)
         value = self.outputs.get(key, "")
         if isinstance(value, list):
             stdout = value.pop(0) if value else ""
@@ -37,13 +39,13 @@ class FakeRunner:
 
 
 class FailingFastForwardRunner(FakeRunner):
-    def run(self, args, cwd, *, check=True, capture=True):
+    def run(self, args, cwd, *, check=True, capture=True, input_text=None):
         if tuple(args[:3]) == ("git", "merge", "--ff-only"):
             result = flow.CommandResult(tuple(args), Path(cwd), 1, "", "not a fast-forward")
             if check:
                 raise flow.FlowError(flow.format_command_failure(result))
             return result
-        return super().run(args, cwd, check=check, capture=capture)
+        return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
 
 
 class CommandRunnerTests(unittest.TestCase):
@@ -160,8 +162,9 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertEqual(args[:2], ("codex", "exec"))
             self.assertIn("--model", args)
             self.assertIn("gpt-5", args)
+            self.assertEqual(args[-1], "-")
+            self.assertEqual(runner.inputs, ["Prompt"])
             self.assertIn("--output-last-message", args)
-            self.assertEqual(args[-1], "Prompt")
 
     def test_harness_exec_logs_jsonl_to_main_repo_archive(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -257,7 +260,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 repo / "plan.md",
                 post_conflict=True,
             )
-            prompt = runner.calls[0][0][-1]
+            prompt = runner.inputs[0]
             self.assertIn("Do not commit", prompt)
             self.assertNotIn("commit audit fixes if changes are made", prompt.lower())
 
