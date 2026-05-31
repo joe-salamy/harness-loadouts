@@ -162,6 +162,8 @@ class HarnessWorktreeFlow:
         self.validate(repo, plan)
 
         names = self.unique_feature_names(repo, derive_slug(plan))
+        self.prepare_harness_permissions(repo / HARNESS_DIR)
+        self.prepare_git_permissions(repo)
         self.start_log(repo, names.run_id)
         print(f"Feature branch: {names.branch}")
         print(f"Feature worktree: {names.worktree}")
@@ -229,8 +231,10 @@ class HarnessWorktreeFlow:
             ],
             repo,
         )
+        self.prepare_harness_permissions(names.worktree / HARNESS_DIR)
         self.ensure_dir(names.worktree / HANDOFF_DIR)
         self.prepare_harness_permissions(names.worktree / HARNESS_DIR)
+        self.prepare_git_permissions(names.worktree)
 
     def ensure_plan_in_worktree(
         self, repo: Path, plan: Path, worktree: Path, slug: str
@@ -308,6 +312,8 @@ Write `{summary.as_posix()}` before finishing.
             "--sandbox",
             "workspace-write",
         ]
+        for writable_root in self.extra_writable_roots(cwd):
+            args.extend(["--add-dir", str(writable_root)])
         if self.config.model:
             args.extend(["--model", self.config.model])
         args.extend(["--output-last-message", str(output_file), "-"])
@@ -350,8 +356,10 @@ Write `{summary.as_posix()}` before finishing.
             ],
             repo,
         )
+        self.prepare_harness_permissions(integration_worktree / HARNESS_DIR)
         self.ensure_dir(integration_worktree / HANDOFF_DIR)
         self.prepare_harness_permissions(integration_worktree / HARNESS_DIR)
+        self.prepare_git_permissions(integration_worktree)
         integration_plan = self.copy_integration_context(
             names.worktree, integration_worktree, plan_path
         )
@@ -491,6 +499,30 @@ Do not commit.
             check=False,
         )
         return bool(result.stdout.strip())
+
+    def git_common_dir(self, worktree: Path) -> Path | None:
+        result = self.runner.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            worktree,
+            check=False,
+        )
+        raw = result.stdout.strip()
+        if result.returncode != 0 or not raw:
+            return None
+        path = Path(raw)
+        if not path.is_absolute():
+            path = worktree / path
+        return path.resolve()
+
+    def extra_writable_roots(self, worktree: Path) -> list[Path]:
+        common_dir = self.git_common_dir(worktree)
+        if common_dir is None or is_relative_to(common_dir, worktree):
+            return []
+        return [common_dir]
+
+    def prepare_git_permissions(self, worktree: Path) -> None:
+        for writable_root in self.extra_writable_roots(worktree):
+            self.prepare_harness_permissions(writable_root)
 
     def ensure_dir(self, path: Path) -> None:
         if self.runner.dry_run:

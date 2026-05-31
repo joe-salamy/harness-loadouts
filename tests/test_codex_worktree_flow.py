@@ -218,6 +218,95 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertEqual(kwargs["env"]["CODEX_PERMISSION_GROUP"], "CodexSandboxUsers")
             self.assertIn("RemoveAccessRuleSpecific", args[4])
 
+    def test_prepare_git_permissions_grants_external_common_git_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            common_git = repo / ".git"
+            repo.mkdir()
+            worktree.mkdir()
+            common_git.mkdir()
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        ("git", "rev-parse", "--git-common-dir"): str(common_git),
+                    }
+                ),
+            )
+            prepared: list[Path] = []
+            subject.prepare_harness_permissions = prepared.append
+
+            subject.prepare_git_permissions(worktree)
+
+            self.assertEqual(prepared, [common_git.resolve()])
+
+    def test_harness_exec_adds_common_git_dir_as_writable_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            common_git = repo / ".git"
+            repo.mkdir()
+            worktree.mkdir()
+            common_git.mkdir()
+            runner = FakeRunner(
+                {
+                    ("git", "rev-parse", "--git-common-dir"): str(common_git),
+                }
+            )
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            subject.harness_exec(
+                worktree,
+                "Prompt",
+                worktree / ".codex" / "handoff" / "implementation-final-response.md",
+            )
+
+            args = runner.calls[-1][0]
+            self.assertIn("--add-dir", args)
+            self.assertIn(str(common_git.resolve()), args)
+
+    def test_run_prepares_primary_repo_permissions_before_logging(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-plan"
+            plan = repo / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            (repo / ".codex").mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            (worktree / "docs" / "plans").mkdir(parents=True)
+            (worktree / "docs" / "plans" / "plan.md").write_text("# Plan", encoding="utf-8")
+            handoff = worktree / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+            runner = FakeRunner(
+                {
+                    ("git", "branch", "--list", "feature/plan"): "",
+                    ("git", "rev-parse", "--git-common-dir"): ".git",
+                }
+            )
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, plan, merge_mode="stop"), runner
+            )
+            prepared: list[Path] = []
+            subject.prepare_harness_permissions = prepared.append
+            subject.create_feature_worktree = lambda _repo, _names: None
+            subject.run_implementation = lambda _worktree, _plan: None
+            subject.run_audit = lambda _worktree, _plan: None
+            subject.unique_feature_names = lambda _repo, _slug: flow.Names(
+                "plan", "feature/plan", worktree, "plan-run"
+            )
+            subject.validate = lambda _repo, _plan: None
+            subject.finish = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("finish should not run")
+            )
+
+            subject.run()
+
+            self.assertEqual(prepared[0], repo / ".codex")
+
     def test_stage_integration_changes_excludes_handoff_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
@@ -257,12 +346,12 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             config = self.config(repo, plan, model="gpt-5")
             runner = FakeRunner()
             flow.HarnessWorktreeFlow(config, runner).harness_exec(repo, "Prompt", repo / "out.md")
-            args = runner.calls[0][0]
+            args = runner.calls[-1][0]
             self.assertEqual(args[:2], ("codex", "exec"))
             self.assertIn("--model", args)
             self.assertIn("gpt-5", args)
             self.assertEqual(args[-1], "-")
-            self.assertEqual(runner.inputs, ["Prompt"])
+            self.assertEqual(runner.inputs[-1], "Prompt")
             self.assertIn("--output-last-message", args)
 
     def test_harness_exec_logs_jsonl_to_main_repo_archive(self) -> None:
@@ -359,7 +448,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 repo / "plan.md",
                 post_conflict=True,
             )
-            prompt = runner.inputs[0]
+            prompt = runner.inputs[-1]
             self.assertIn("Do not commit", prompt)
             self.assertNotIn("commit audit fixes if changes are made", prompt.lower())
 
