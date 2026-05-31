@@ -50,13 +50,20 @@ class CommandRunner:
         if self.dry_run:
             return CommandResult(tuple(args), cwd, 0)
 
-        completed = subprocess.run(
-            list(args),
-            cwd=cwd,
-            check=False,
-            capture_output=capture,
-            text=True,
-        )
+        executable = shutil.which(args[0])
+        if executable is None:
+            raise FlowError(f"Executable not found on PATH: {args[0]}")
+        resolved_args = [executable, *args[1:]]
+        try:
+            completed = subprocess.run(
+                resolved_args,
+                cwd=cwd,
+                check=False,
+                capture_output=capture,
+                text=True,
+            )
+        except OSError as exc:
+            raise FlowError(f"Failed to run command: {display}\ncwd: {cwd}\n{exc}") from exc
         result = CommandResult(
             tuple(args),
             cwd,

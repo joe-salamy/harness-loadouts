@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -42,6 +43,55 @@ class FailingFastForwardRunner(FakeRunner):
                 raise flow.FlowError(flow.format_command_failure(result))
             return result
         return super().run(args, cwd, check=check, capture=capture)
+
+
+class CommandRunnerTests(unittest.TestCase):
+    def test_run_resolves_executable_before_invoking_subprocess(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["C:/bin/codex.CMD", "exec", "--help"],
+            0,
+            "ok",
+            "",
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD") as which,
+            mock.patch.object(flow.subprocess, "run", return_value=completed) as run,
+        ):
+            result = flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
+
+        which.assert_called_once_with("codex")
+        run.assert_called_once()
+        self.assertEqual(
+            run.call_args.args[0],
+            ["C:/bin/codex.CMD", "exec", "--help"],
+        )
+        self.assertEqual(result.args, ("codex", "exec", "--help"))
+        self.assertEqual(result.stdout, "ok")
+
+    def test_run_reports_missing_executable_as_flow_error(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value=None),
+            mock.patch.object(flow.subprocess, "run") as run,
+            self.assertRaisesRegex(flow.FlowError, "Executable not found on PATH: codex"),
+        ):
+            flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
+
+        run.assert_not_called()
+
+    def test_run_reports_launch_oserror_as_flow_error(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD"),
+            mock.patch.object(
+                flow.subprocess,
+                "run",
+                side_effect=FileNotFoundError("missing shim target"),
+            ),
+            self.assertRaisesRegex(flow.FlowError, "Failed to run command: codex exec --help"),
+        ):
+            flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
 
 
 class HarnessWorktreeFlowTests(unittest.TestCase):
