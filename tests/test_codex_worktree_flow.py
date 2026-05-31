@@ -386,6 +386,42 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 ),
             )
 
+
+    def test_tracked_handoff_artifacts_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            runner = FakeRunner(
+                {
+                    (
+                        "git",
+                        "ls-tree",
+                        "-r",
+                        "--name-only",
+                        "feature/plan",
+                        "--",
+                        ".codex/handoff",
+                    ): ".codex/handoff/audit-summary.md\n",
+                }
+            )
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            with self.assertRaisesRegex(flow.FlowError, "Workflow handoff artifacts"):
+                subject.require_no_tracked_handoff_artifacts(repo, "feature/plan")
+
+    def test_handoff_prompts_forbid_committing_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            subject.run_implementation(repo, repo / "plan.md")
+            subject.run_audit(repo, repo / "plan.md")
+
+            prompts = [value for value in runner.inputs if value is not None]
+            self.assertIn("Do not commit files under `.codex/handoff/`", prompts[-2])
+            self.assertIn("Do not commit files under `.codex/handoff/`", prompts[-1])
+
     def test_plan_outside_repo_is_copied(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"

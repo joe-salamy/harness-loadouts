@@ -1,6 +1,7 @@
 # Local/generated docs and notes
 docs/
 .codex/worktree-flow/
+.codex/handoff/
 
 # OS
 Thumbs.db

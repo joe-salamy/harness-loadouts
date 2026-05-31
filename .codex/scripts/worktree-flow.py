@@ -174,8 +174,10 @@ class HarnessWorktreeFlow:
         )
         self.run_implementation(names.worktree, plan_in_worktree)
         self.require_file(names.worktree / HANDOFF_DIR / "implementation-summary.md")
+        self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
         self.run_audit(names.worktree, plan_in_worktree)
         self.require_file(names.worktree / HANDOFF_DIR / "audit-summary.md")
+        self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
         archive_dir = self.archive_handoff(
             repo, names.worktree, names.run_id, "feature"
         )
@@ -263,6 +265,7 @@ Requirements:
 - Run focused tests or checks appropriate to the change.
 - Commit the completed implementation.
 - Write `{HANDOFF_DIR.as_posix()}/implementation-summary.md` with plan path, branch/worktree, changed files, behavior changes, tests run, skipped checks, assumptions, and known risks.
+- Do not commit files under `{HANDOFF_DIR.as_posix()}/`; they are workflow artifacts and must remain untracked.
 """
         output = worktree / HANDOFF_DIR / "implementation-final-response.md"
         self.harness_exec(worktree, prompt, output)
@@ -289,6 +292,7 @@ Read:
 
 Audit the actual diff against `{self.config.base}`. Fix confirmed issues and run relevant tests.
 {audit_finish_instruction}
+Do not commit files under `{HANDOFF_DIR.as_posix()}/`; they are workflow artifacts and must remain untracked.
 Write `{summary.as_posix()}` before finishing.
 """
         output = (
@@ -348,6 +352,7 @@ Write `{summary.as_posix()}` before finishing.
             repo.parent / f"{repo.name}-integrate-{names.slug}-{stamp}"
         )
 
+        self.require_no_tracked_handoff_artifacts(repo, names.branch)
         self.runner.run(["git", "fetch", "--all", "--prune"], repo)
         self.runner.run(
             [
@@ -504,6 +509,31 @@ Do not commit.
             check=False,
         )
         return bool(result.stdout.strip())
+
+    def require_no_tracked_handoff_artifacts(
+        self, worktree: Path, treeish: str
+    ) -> None:
+        result = self.runner.run(
+            [
+                "git",
+                "ls-tree",
+                "-r",
+                "--name-only",
+                treeish,
+                "--",
+                HANDOFF_DIR.as_posix(),
+            ],
+            worktree,
+            check=False,
+        )
+        tracked = result.stdout.strip()
+        if result.returncode != 0 or not tracked:
+            return
+        raise FlowError(
+            "Workflow handoff artifacts were committed, but they must remain "
+            f"untracked:\n{tracked}\nRemove them from the branch index before "
+            "merging, for example: git rm --cached -- .codex/handoff/*"
+        )
 
     def git_common_dir(self, worktree: Path) -> Path | None:
         result = self.runner.run(
