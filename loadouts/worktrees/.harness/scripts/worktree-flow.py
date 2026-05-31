@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -147,7 +148,6 @@ class FlowConfig:
     harness: str
     merge_mode: str
     keep_worktrees: bool
-    yes: bool
 
 
 class HarnessWorktreeFlow:
@@ -229,7 +229,8 @@ class HarnessWorktreeFlow:
             ],
             repo,
         )
-        ensure_dir(names.worktree / HANDOFF_DIR)
+        self.ensure_dir(names.worktree / HANDOFF_DIR)
+        self.prepare_harness_permissions(names.worktree / HARNESS_DIR)
 
     def ensure_plan_in_worktree(
         self, repo: Path, plan: Path, worktree: Path, slug: str
@@ -243,8 +244,8 @@ class HarnessWorktreeFlow:
             rel = Path("docs") / "plans" / f"{slug}.md"
             target = worktree / rel
 
-        ensure_dir(target.parent)
-        shutil.copy2(plan, target)
+        self.ensure_dir(target.parent)
+        self.copy_file(plan, target)
         return target
 
     def run_implementation(self, worktree: Path, plan_path: Path) -> None:
@@ -298,7 +299,7 @@ Write `{summary.as_posix()}` before finishing.
         self.harness_exec(worktree, prompt, output)
 
     def harness_exec(self, cwd: Path, prompt: str, output_file: Path) -> None:
-        ensure_dir(output_file.parent)
+        self.ensure_dir(output_file.parent)
         args = [
             self.config.harness,
             "exec",
@@ -349,7 +350,8 @@ Write `{summary.as_posix()}` before finishing.
             ],
             repo,
         )
-        ensure_dir(integration_worktree / HANDOFF_DIR)
+        self.ensure_dir(integration_worktree / HANDOFF_DIR)
+        self.prepare_harness_permissions(integration_worktree / HARNESS_DIR)
         integration_plan = self.copy_integration_context(
             names.worktree, integration_worktree, plan_path
         )
@@ -363,8 +365,13 @@ Write `{summary.as_posix()}` before finishing.
                     check=False,
                 )
                 if merge.returncode != 0:
-                    self.resolve_conflict(integration_worktree, names, integration_plan)
-                self.runner.run(["git", "add", "-A"], integration_worktree)
+                    if self.has_unmerged_paths(integration_worktree):
+                        self.resolve_conflict(
+                            integration_worktree, names, integration_plan
+                        )
+                    else:
+                        raise FlowError(format_command_failure(merge))
+                self.stage_integration_changes(integration_worktree)
                 self.runner.run(
                     ["git", "commit", "-m", f"Harness: {title}"], integration_worktree
                 )
@@ -375,8 +382,13 @@ Write `{summary.as_posix()}` before finishing.
                     check=False,
                 )
                 if merge.returncode != 0:
-                    self.resolve_conflict(integration_worktree, names, integration_plan)
-                    self.runner.run(["git", "add", "-A"], integration_worktree)
+                    if self.has_unmerged_paths(integration_worktree):
+                        self.resolve_conflict(
+                            integration_worktree, names, integration_plan
+                        )
+                    else:
+                        raise FlowError(format_command_failure(merge))
+                    self.stage_integration_changes(integration_worktree)
                     self.runner.run(
                         ["git", "merge", "--continue"], integration_worktree
                     )
@@ -395,7 +407,7 @@ Write `{summary.as_posix()}` before finishing.
         self, integration_worktree: Path, names: Names, plan_path: Path
     ) -> None:
         context_path = integration_worktree / HANDOFF_DIR / "merge-conflict-context.md"
-        write_text(
+        self.write_text(
             context_path, self.conflict_context(integration_worktree, names, plan_path)
         )
         prompt = f"""Use the merge-conflict-resolver skill.
@@ -431,33 +443,140 @@ Do not commit.
     ) -> Path:
         source_handoff = feature_worktree / HANDOFF_DIR
         dest_handoff = integration_worktree / HANDOFF_DIR
-        ensure_dir(dest_handoff)
+        self.ensure_dir(dest_handoff)
         if source_handoff.exists():
             for item in source_handoff.iterdir():
                 if item.is_file():
-                    shutil.copy2(item, dest_handoff / item.name)
+                    self.copy_file(item, dest_handoff / item.name)
 
         try:
             rel_plan = plan_path.resolve().relative_to(feature_worktree.resolve())
         except ValueError:
             rel_plan = Path("docs") / "plans" / plan_path.name
         dest_plan = integration_worktree / rel_plan
-        ensure_dir(dest_plan.parent)
+        self.ensure_dir(dest_plan.parent)
         if plan_path.exists():
-            shutil.copy2(plan_path, dest_plan)
+            self.copy_file(plan_path, dest_plan)
         return dest_plan
 
     def archive_handoff(
         self, repo: Path, worktree: Path, run_id: str, stage: str
     ) -> Path:
         archive_dir = repo / HARNESS_DIR / "worktree-flow" / run_id / stage
-        ensure_dir(archive_dir)
+        self.ensure_dir(archive_dir)
         source = worktree / HANDOFF_DIR
         if source.exists():
             for item in source.iterdir():
                 if item.is_file():
-                    shutil.copy2(item, archive_dir / item.name)
+                    self.copy_file(item, archive_dir / item.name)
         return archive_dir
+
+    def stage_integration_changes(self, worktree: Path) -> None:
+        self.runner.run(
+            [
+                "git",
+                "add",
+                "-A",
+                "--",
+                ".",
+                f":(exclude){HANDOFF_DIR.as_posix()}/**",
+            ],
+            worktree,
+        )
+
+    def has_unmerged_paths(self, worktree: Path) -> bool:
+        result = self.runner.run(
+            ["git", "diff", "--name-only", "--diff-filter=U"],
+            worktree,
+            check=False,
+        )
+        return bool(result.stdout.strip())
+
+    def ensure_dir(self, path: Path) -> None:
+        if self.runner.dry_run:
+            print(f"+ mkdir -p {path}")
+            return
+        ensure_dir(path)
+
+    def copy_file(self, source: Path, dest: Path) -> None:
+        if self.runner.dry_run:
+            print(f"+ copy {source} {dest}")
+            return
+        shutil.copy2(source, dest)
+
+    def write_text(self, path: Path, text: str) -> None:
+        if self.runner.dry_run:
+            print(f"+ write {path}")
+            return
+        write_text(path, text)
+
+    def prepare_harness_permissions(self, harness_dir: Path) -> None:
+        if self.runner.dry_run or os.name != "nt" or not harness_dir.exists():
+            return
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if shell is None:
+            print(
+                f"Warning: could not grant sandbox write permissions for {harness_dir}: "
+                "PowerShell was not found.",
+                file=sys.stderr,
+            )
+            return
+        group = os.environ.get("CODEX_SANDBOX_GROUP", "CodexSandboxUsers")
+        script = r"""
+$Root = $env:CODEX_PERMISSION_ROOT
+$Group = $env:CODEX_PERMISSION_GROUP
+$ErrorActionPreference = 'Stop'
+$identity = New-Object System.Security.Principal.NTAccount($Group)
+$rights = [System.Security.AccessControl.FileSystemRights]::Modify
+$propagate = [System.Security.AccessControl.PropagationFlags]::None
+$items = @((Get-Item -LiteralPath $Root -Force))
+$items += @(Get-ChildItem -LiteralPath $Root -Force -Recurse)
+foreach ($item in $items) {
+    $acl = Get-Acl -LiteralPath $item.FullName
+    foreach ($rule in @($acl.Access)) {
+        if ($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Deny) {
+            [void]$acl.RemoveAccessRuleSpecific($rule)
+        }
+    }
+    if ($item.PSIsContainer) {
+        $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    } else {
+        $inherit = [System.Security.AccessControl.InheritanceFlags]::None
+    }
+    $allow = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $identity,
+        $rights,
+        $inherit,
+        $propagate,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $acl.SetAccessRule($allow)
+    Set-Acl -LiteralPath $item.FullName -AclObject $acl
+}
+"""
+        completed = subprocess.run(
+            [
+                shell,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            check=False,
+            capture_output=True,
+            env={
+                **os.environ,
+                "CODEX_PERMISSION_ROOT": str(harness_dir),
+                "CODEX_PERMISSION_GROUP": group,
+            },
+            text=True,
+        )
+        if completed.returncode != 0:
+            print(
+                "Warning: could not grant sandbox write permissions for "
+                f"{harness_dir}: {(completed.stderr or completed.stdout).strip()}",
+                file=sys.stderr,
+            )
 
     def conflict_context(
         self, integration_worktree: Path, names: Names, plan_path: Path
@@ -602,9 +721,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print commands without running them."
     )
-    parser.add_argument(
-        "--yes", action="store_true", help="Reserved for future confirmation prompts."
-    )
     return parser
 
 
@@ -619,7 +735,6 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         merge_mode=args.merge_mode,
         keep_worktrees=args.keep_worktrees,
-        yes=args.yes,
     )
     try:
         HarnessWorktreeFlow(config, CommandRunner(args.dry_run)).run()

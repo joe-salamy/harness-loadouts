@@ -20,17 +20,26 @@ SPEC.loader.exec_module(flow)
 
 
 class FakeRunner:
-    def __init__(self, outputs: dict[tuple[str, ...], list[str] | str] | None = None) -> None:
+    def __init__(
+        self,
+        outputs: dict[
+            tuple[str, ...], flow.CommandResult | list[str] | str
+        ] | None = None,
+        *,
+        dry_run: bool = False,
+    ) -> None:
         self.outputs = outputs or {}
         self.calls: list[tuple[tuple[str, ...], Path, bool]] = []
         self.inputs: list[str | None] = []
-        self.dry_run = False
+        self.dry_run = dry_run
 
     def run(self, args, cwd, *, check=True, capture=True, input_text=None):
         key = tuple(args)
         self.calls.append((key, Path(cwd), check))
         self.inputs.append(input_text)
         value = self.outputs.get(key, "")
+        if isinstance(value, flow.CommandResult):
+            return value
         if isinstance(value, list):
             stdout = value.pop(0) if value else ""
         else:
@@ -45,6 +54,22 @@ class FailingFastForwardRunner(FakeRunner):
             if check:
                 raise flow.FlowError(flow.format_command_failure(result))
             return result
+        return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
+
+
+class FailingSquashMergeRunner(FakeRunner):
+    def __init__(self, *, unmerged_paths: str) -> None:
+        super().__init__()
+        self.unmerged_paths = unmerged_paths
+
+    def run(self, args, cwd, *, check=True, capture=True, input_text=None):
+        key = tuple(args)
+        if key[:3] == ("git", "merge", "--squash"):
+            self.calls.append((key, Path(cwd), check))
+            return flow.CommandResult(key, Path(cwd), 1, "", "merge failed")
+        if key == ("git", "diff", "--name-only", "--diff-filter=U"):
+            self.calls.append((key, Path(cwd), check))
+            return flow.CommandResult(key, Path(cwd), 0, self.unmerged_paths, "")
         return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
 
 
@@ -138,6 +163,80 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             target.write_text("# Plan", encoding="utf-8")
             actual = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "plan")
             self.assertEqual(actual, target)
+
+    def test_dry_run_plan_copy_does_not_mutate_filesystem(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            plan = Path(temp) / "external.md"
+            repo.mkdir()
+            worktree.mkdir()
+            plan.write_text("# External", encoding="utf-8")
+
+            actual = flow.HarnessWorktreeFlow(
+                self.config(repo, plan), FakeRunner(dry_run=True)
+            ).ensure_plan_in_worktree(repo, plan, worktree, "external")
+
+            self.assertEqual(actual, worktree / "docs" / "plans" / "external.md")
+            self.assertFalse(actual.exists())
+
+    def test_dry_run_archive_handoff_does_not_mutate_filesystem(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            source = worktree / ".codex" / "handoff"
+            repo.mkdir()
+            source.mkdir(parents=True)
+            (source / "implementation-summary.md").write_text("impl", encoding="utf-8")
+
+            archive = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"), FakeRunner(dry_run=True)
+            ).archive_handoff(repo, worktree, "plan-run", "feature")
+
+            self.assertFalse(archive.exists())
+
+    def test_prepare_harness_permissions_grants_sandbox_group_on_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            harness_dir = Path(temp) / ".codex"
+            harness_dir.mkdir()
+            completed = subprocess.CompletedProcess(["pwsh"], 0, "", "")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(Path(temp), Path(temp) / "plan.md"), FakeRunner()
+            )
+
+            with (
+                mock.patch.object(flow.os, "name", "nt"),
+                mock.patch.object(flow.shutil, "which", return_value="C:/PowerShell/pwsh.exe"),
+                mock.patch.object(flow.subprocess, "run", return_value=completed) as run,
+            ):
+                subject.prepare_harness_permissions(harness_dir)
+
+            args = run.call_args.args[0]
+            kwargs = run.call_args.kwargs
+            self.assertEqual(args[0], "C:/PowerShell/pwsh.exe")
+            self.assertEqual(kwargs["env"]["CODEX_PERMISSION_ROOT"], str(harness_dir))
+            self.assertEqual(kwargs["env"]["CODEX_PERMISSION_GROUP"], "CodexSandboxUsers")
+            self.assertIn("RemoveAccessRuleSpecific", args[4])
+
+    def test_stage_integration_changes_excludes_handoff_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            subject.stage_integration_changes(repo)
+
+            self.assertEqual(
+                runner.calls[0][0],
+                (
+                    "git",
+                    "add",
+                    "-A",
+                    "--",
+                    ".",
+                    ":(exclude).codex/handoff/**",
+                ),
+            )
 
     def test_plan_outside_repo_is_copied(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -280,6 +379,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject = flow.HarnessWorktreeFlow(self.config(repo, plan), FailingFastForwardRunner())
             subject.cleanup = lambda *_args: (_ for _ in ()).throw(AssertionError("cleanup should not run"))
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.prepare_harness_permissions = lambda _path: None
 
             with self.assertRaises(flow.FlowError):
                 subject.finish(
@@ -288,6 +388,67 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                     plan,
                     "Plan",
                 )
+
+    def test_non_conflict_squash_merge_failure_does_not_run_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            plan = feature / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            handoff = feature / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, plan), FailingSquashMergeRunner(unmerged_paths="")
+            )
+            subject.prepare_harness_permissions = lambda _path: None
+            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("resolver should not run")
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "merge --squash"):
+                subject.finish(
+                    repo,
+                    flow.Names("plan", "feature/plan", feature, "plan-run"),
+                    plan,
+                    "Plan",
+                )
+
+    def test_conflict_squash_merge_failure_runs_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            plan = feature / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            handoff = feature / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, plan), FailingSquashMergeRunner(unmerged_paths="app.py\n")
+            )
+            resolved = []
+            subject.prepare_harness_permissions = lambda _path: None
+            subject.resolve_conflict = lambda *_args: resolved.append(True)
+            subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+
+            subject.finish(
+                repo,
+                flow.Names("plan", "feature/plan", feature, "plan-run"),
+                plan,
+                "Plan",
+            )
+
+            self.assertEqual(resolved, [True])
+
+    def test_parser_rejects_removed_yes_option(self) -> None:
+        with self.assertRaises(SystemExit):
+            flow.build_parser().parse_args(["--plan", "plan.md", "--yes"])
 
     def test_local_git_worktree_and_squash_merge(self) -> None:
         if not shutil.which("git"):
@@ -310,11 +471,26 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             integration = Path(temp) / "repo-integration"
             subprocess.run(["git", "worktree", "add", str(integration), "-b", "integration/test", "main"], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "merge", "--squash", "feature/test"], cwd=integration, check=True, capture_output=True)
+            (integration / ".codex" / "handoff").mkdir(parents=True)
+            (integration / ".codex" / "handoff" / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"), flow.CommandRunner()
+            )
+            subject.stage_integration_changes(integration)
             subprocess.run(["git", "commit", "-m", "Harness: test"], cwd=integration, check=True, capture_output=True)
             subprocess.run(["git", "switch", "main"], cwd=repo, check=True, capture_output=True)
             subprocess.run(["git", "merge", "--ff-only", "integration/test"], cwd=repo, check=True, capture_output=True)
 
+            committed = subprocess.run(
+                ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
             self.assertEqual((repo / "file.txt").read_text(encoding="utf-8"), "feature\n")
+            self.assertIn("file.txt", committed)
+            self.assertNotIn(".codex/handoff/implementation-summary.md", committed)
 
     def config(
         self,
@@ -332,9 +508,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             harness="codex",
             merge_mode=merge_mode,
             keep_worktrees=False,
-            yes=True,
         )
-
 
 if __name__ == "__main__":
     unittest.main()
