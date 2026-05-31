@@ -1,10 +1,6 @@
 # Local/generated docs and notes
 docs/
 
-# Local harness settings (user-specific permissions)
-.codex/
-AGENTS.md
-
 # OS
 Thumbs.db
 .DS_Store

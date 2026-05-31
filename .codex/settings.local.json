@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": ["Bash(git add:*)", "Bash(git commit -m ':*)", "Bash(git push:*)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import sys,json,subprocess; d=json.load(sys.stdin); f=d.get('tool_input',{}).get('file_path',''); r=subprocess.run(['python','-m','py_compile',f],capture_output=True,text=True) if f.endswith('.py') else None; r and r.returncode and (sys.stderr.write(r.stderr) or sys.exit(r.returncode))\"",
+            "statusMessage": "Checking syntax..."
+          }
+        ]
+      }
+    ]
+  }
+}

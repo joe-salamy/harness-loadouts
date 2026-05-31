@@ -1,0 +1,22 @@
+{
+  "scopes": {
+    "user:C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills": {
+      "archive_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills.archive",
+      "scope": "user",
+      "skills": {
+        "save-plan": {
+          "archived_at": null,
+          "first_seen": "2026-05-31T17:14:58Z",
+          "last_load_index": 1,
+          "last_seen": "2026-05-31T17:14:58Z",
+          "load_count": 1,
+          "pinned": false,
+          "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills/save-plan"
+        }
+      },
+      "skills_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills",
+      "total_loads": 1
+    }
+  },
+  "version": 1
+}
