@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -24,6 +26,38 @@ def make_skill(skills_dir: Path, name: str) -> Path:
         encoding="utf-8",
     )
     return skill_dir
+
+
+def write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def ledger(scope: str, skills_dir: Path, loads: dict[str, int]) -> dict:
+    total = sum(loads.values())
+    return {
+        "version": 1,
+        "scopes": {
+            f"{scope}:{manager.canonical(skills_dir)}": {
+                "scope": scope,
+                "skills_dir": manager.canonical(skills_dir),
+                "archive_dir": manager.canonical(skills_dir.parent / "skills.archive"),
+                "total_loads": total,
+                "skills": {
+                    name: {
+                        "first_seen": "2026-01-01T00:00:00Z",
+                        "last_seen": f"2026-01-01T00:00:0{index}Z",
+                        "last_load_index": count,
+                        "load_count": count,
+                        "source_path": manager.canonical(skills_dir / name),
+                        "archived_at": "old",
+                        "pinned": False,
+                    }
+                    for index, (name, count) in enumerate(loads.items())
+                },
+            }
+        },
+    }
 
 
 class SkillUsageManagerTests(unittest.TestCase):
@@ -165,6 +199,129 @@ class SkillUsageManagerTests(unittest.TestCase):
                 0,
             )
             self.assertTrue((skills / "old-skill" / "SKILL.md").exists())
+
+    def test_consolidate_adds_only_feature_delta(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_repo = root / "repo-feature"
+            target_repo = root / "repo"
+            source_skills = source_repo / ".codex" / "skills"
+            target_skills = target_repo / ".codex" / "skills"
+            base = root / "base.json"
+            source = source_repo / ".codex" / "skill-usage.json"
+            target = target_repo / ".codex" / "skill-usage.json"
+            write_json(base, ledger("repo", source_skills, {"implement-worktree": 2}))
+            write_json(source, ledger("repo", source_skills, {"implement-worktree": 5}))
+            write_json(target, ledger("repo", target_skills, {"implement-worktree": 10}))
+
+            self.assertEqual(
+                manager.main(
+                    [
+                        "consolidate",
+                        "--source-ledger",
+                        str(source),
+                        "--base-ledger",
+                        str(base),
+                        "--target-ledger",
+                        str(target),
+                        "--source-repo",
+                        str(source_repo),
+                        "--target-repo",
+                        str(target_repo),
+                    ]
+                ),
+                0,
+            )
+
+            data = json.loads(target.read_text(encoding="utf-8"))
+            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            self.assertEqual(scope["total_loads"], 13)
+            self.assertEqual(scope["skills"]["implement-worktree"]["load_count"], 13)
+            self.assertEqual(scope["skills"]["implement-worktree"]["last_load_index"], 13)
+
+    def test_consolidate_remaps_repo_scope_to_target_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_repo = root / "repo-feature"
+            target_repo = root / "repo"
+            source_skills = source_repo / ".codex" / "skills"
+            target_skills = target_repo / ".codex" / "skills"
+            base = root / "missing-base.json"
+            source = source_repo / ".codex" / "skill-usage.json"
+            target = target_repo / ".codex" / "skill-usage.json"
+            write_json(source, ledger("repo", source_skills, {"audit-worktree": 1}))
+
+            manager.main(
+                [
+                    "consolidate",
+                    "--source-ledger",
+                    str(source),
+                    "--base-ledger",
+                    str(base),
+                    "--target-ledger",
+                    str(target),
+                    "--source-repo",
+                    str(source_repo),
+                    "--target-repo",
+                    str(target_repo),
+                ]
+            )
+
+            data = json.loads(target.read_text(encoding="utf-8"))
+            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            self.assertEqual(scope["skills_dir"], manager.canonical(target_skills))
+            self.assertEqual(
+                scope["skills"]["audit-worktree"]["source_path"],
+                manager.canonical(target_skills / "audit-worktree"),
+            )
+
+    def test_consolidate_preserves_target_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_repo = root / "repo-feature"
+            target_repo = root / "repo"
+            source_skills = source_repo / ".codex" / "skills"
+            target_skills = target_repo / ".codex" / "skills"
+            base = root / "base.json"
+            source = source_repo / ".codex" / "skill-usage.json"
+            target = target_repo / ".codex" / "skill-usage.json"
+            write_json(base, ledger("repo", source_skills, {"python-pro": 1}))
+            write_json(source, ledger("repo", source_skills, {"python-pro": 2}))
+            target_data = ledger("repo", target_skills, {"python-pro": 4, "save-plan": 3})
+            target_scope = next(iter(target_data["scopes"].values()))
+            target_scope["skills"]["python-pro"]["pinned"] = True
+            write_json(target, target_data)
+
+            manager.main(
+                [
+                    "consolidate",
+                    "--source-ledger",
+                    str(source),
+                    "--base-ledger",
+                    str(base),
+                    "--target-ledger",
+                    str(target),
+                    "--source-repo",
+                    str(source_repo),
+                    "--target-repo",
+                    str(target_repo),
+                ]
+            )
+
+            data = json.loads(target.read_text(encoding="utf-8"))
+            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            self.assertEqual(scope["total_loads"], 8)
+            self.assertEqual(scope["skills"]["python-pro"]["load_count"], 5)
+            self.assertEqual(scope["skills"]["save-plan"]["load_count"], 3)
+            self.assertTrue(scope["skills"]["python-pro"]["pinned"])
+
+    def test_consolidate_help_documents_one_shot_semantics(self) -> None:
+        stdout = io.StringIO()
+        with self.assertRaises(SystemExit), redirect_stdout(stdout):
+            manager.build_parser().parse_args(["consolidate", "--help"])
+        help_text = stdout.getvalue()
+        self.assertIn("One-shot", help_text)
+        self.assertIn("Replaying", help_text)
 
 
 if __name__ == "__main__":

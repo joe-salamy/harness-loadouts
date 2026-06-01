@@ -20,6 +20,7 @@ if not HARNESS_DIR.name.startswith("."):
     HARNESS_DIR = Path(".harness")
 DEFAULT_HARNESS = HARNESS_DIR.name.lstrip(".")
 HANDOFF_DIR = HARNESS_DIR / "handoff"
+EMPTY_SKILL_USAGE_LEDGER = {"version": 1, "scopes": {}}
 
 
 class FlowError(RuntimeError):
@@ -172,6 +173,7 @@ class HarnessWorktreeFlow:
         plan_in_worktree = self.ensure_plan_in_worktree(
             repo, plan, names.worktree, names.slug
         )
+        self.snapshot_skill_usage_baseline(names.worktree)
         self.run_implementation(names.worktree, plan_in_worktree)
         self.require_file(names.worktree / HANDOFF_DIR / "implementation-summary.md")
         self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
@@ -373,9 +375,11 @@ Write `{summary.as_posix()}` before finishing.
         integration_plan = self.copy_integration_context(
             names.worktree, integration_worktree, plan_path
         )
+        feature_baseline = integration_worktree / HANDOFF_DIR / "skill-usage-baseline.json"
 
         integrated = False
         try:
+            skill_usage_restored = False
             if self.config.merge_mode == "squash":
                 merge = self.runner.run(
                     ["git", "merge", "--squash", names.branch],
@@ -383,33 +387,47 @@ Write `{summary.as_posix()}` before finishing.
                     check=False,
                 )
                 if merge.returncode != 0:
-                    if self.has_unmerged_paths(integration_worktree):
+                    unmerged = self.unmerged_paths(integration_worktree)
+                    if unmerged:
+                        self.restore_integration_skill_usage_to_head(
+                            integration_worktree
+                        )
+                        skill_usage_restored = True
+                    if unmerged and not self.only_skill_usage_unmerged(unmerged):
                         self.resolve_conflict(
                             integration_worktree, names, integration_plan
                         )
-                    else:
+                    elif not unmerged:
                         raise FlowError(format_command_failure(merge))
-                self.stage_integration_changes(integration_worktree)
-                self.runner.run(
-                    ["git", "commit", "-m", f"Harness: {title}"], integration_worktree
-                )
             else:
                 merge = self.runner.run(
-                    ["git", "merge", "--no-ff", names.branch],
+                    ["git", "merge", "--no-ff", "--no-commit", names.branch],
                     integration_worktree,
                     check=False,
                 )
                 if merge.returncode != 0:
-                    if self.has_unmerged_paths(integration_worktree):
+                    unmerged = self.unmerged_paths(integration_worktree)
+                    if unmerged:
+                        self.restore_integration_skill_usage_to_head(
+                            integration_worktree
+                        )
+                        skill_usage_restored = True
+                    if unmerged and not self.only_skill_usage_unmerged(unmerged):
                         self.resolve_conflict(
                             integration_worktree, names, integration_plan
                         )
-                    else:
+                    elif not unmerged:
                         raise FlowError(format_command_failure(merge))
-                    self.stage_integration_changes(integration_worktree)
-                    self.runner.run(
-                        ["git", "merge", "--continue"], integration_worktree
-                    )
+
+            if not skill_usage_restored:
+                self.restore_integration_skill_usage_to_head(integration_worktree)
+            self.consolidate_skill_usage(
+                names.worktree, integration_worktree, feature_baseline
+            )
+            self.stage_integration_changes(integration_worktree)
+            self.runner.run(
+                ["git", "commit", "-m", f"Harness: {title}"], integration_worktree
+            )
 
             self.archive_handoff(
                 repo, integration_worktree, names.run_id, "integration"
@@ -502,13 +520,94 @@ Do not commit.
             worktree,
         )
 
+    def skill_usage_script(self, worktree: Path) -> Path:
+        return worktree / HARNESS_DIR / "scripts" / "skill-usage-manager.py"
+
+    def skill_usage_ledger(self, repo_root: Path) -> Path:
+        for harness_dir in (HARNESS_DIR.as_posix(), ".harness", ".codex", ".opencode", ".claude", ".omp", ".agents"):
+            candidate = repo_root / harness_dir
+            if candidate.exists():
+                return candidate / "skill-usage.json"
+        return repo_root / ".skill-usage.json"
+
+    def snapshot_skill_usage_baseline(self, worktree: Path) -> Path:
+        baseline = worktree / HANDOFF_DIR / "skill-usage-baseline.json"
+        ledger = self.skill_usage_ledger(worktree)
+        if self.runner.dry_run:
+            print(f"+ snapshot skill usage {ledger} {baseline}")
+            return baseline
+        self.ensure_dir(baseline.parent)
+        if ledger.exists():
+            self.copy_file(ledger, baseline)
+        else:
+            baseline.write_text(
+                json.dumps(EMPTY_SKILL_USAGE_LEDGER, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        return baseline
+
+    def restore_integration_skill_usage_to_head(self, integration_worktree: Path) -> None:
+        ledger = self.skill_usage_ledger(integration_worktree)
+        rel = ledger.relative_to(integration_worktree).as_posix()
+        exists_at_head = (
+            self.runner.run(
+                ["git", "cat-file", "-e", f"HEAD:{rel}"],
+                integration_worktree,
+                check=False,
+            ).returncode
+            == 0
+        )
+        if exists_at_head:
+            self.runner.run(["git", "checkout", "HEAD", "--", rel], integration_worktree)
+        else:
+            self.runner.run(
+                ["git", "rm", "-f", "--ignore-unmatch", "--", rel],
+                integration_worktree,
+                check=False,
+            )
+            if not self.runner.dry_run and ledger.exists():
+                ledger.unlink()
+
+    def consolidate_skill_usage(
+        self, source_worktree: Path, integration_worktree: Path, baseline_path: Path
+    ) -> None:
+        self.runner.run(
+            [
+                sys.executable,
+                str(self.skill_usage_script(integration_worktree)),
+                "consolidate",
+                "--source-ledger",
+                str(self.skill_usage_ledger(source_worktree)),
+                "--base-ledger",
+                str(baseline_path),
+                "--target-ledger",
+                str(self.skill_usage_ledger(integration_worktree)),
+                "--source-repo",
+                str(source_worktree),
+                "--target-repo",
+                str(integration_worktree),
+            ],
+            integration_worktree,
+        )
+
     def has_unmerged_paths(self, worktree: Path) -> bool:
+        return bool(self.unmerged_paths(worktree))
+
+    def unmerged_paths(self, worktree: Path) -> list[str]:
         result = self.runner.run(
             ["git", "diff", "--name-only", "--diff-filter=U"],
             worktree,
             check=False,
         )
-        return bool(result.stdout.strip())
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def only_skill_usage_unmerged(self, paths: Sequence[str]) -> bool:
+        expected = {
+            self.skill_usage_ledger(Path()).as_posix().lstrip("./"),
+            (HARNESS_DIR / "skill-usage.json").as_posix(),
+        }
+        return bool(paths) and all(path.replace("\\", "/") in expected for path in paths)
 
     def require_no_tracked_handoff_artifacts(
         self, worktree: Path, treeish: str

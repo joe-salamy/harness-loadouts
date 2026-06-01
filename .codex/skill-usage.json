@@ -1,5 +1,49 @@
 {
   "scopes": {
+    "repo:C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills": {
+      "archive_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills.archive",
+      "scope": "repo",
+      "skills": {
+        "audit-worktree": {
+          "archived_at": null,
+          "first_seen": "2026-05-31T23:35:26Z",
+          "last_load_index": 2,
+          "last_seen": "2026-05-31T23:35:26Z",
+          "load_count": 1,
+          "pinned": false,
+          "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills/audit-worktree"
+        },
+        "code-reviewer": {
+          "archived_at": null,
+          "first_seen": "2026-05-31T23:36:04Z",
+          "last_load_index": 4,
+          "last_seen": "2026-05-31T23:36:04Z",
+          "load_count": 1,
+          "pinned": false,
+          "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills/code-reviewer"
+        },
+        "implement-worktree": {
+          "archived_at": null,
+          "first_seen": "2026-05-31T23:26:47Z",
+          "last_load_index": 1,
+          "last_seen": "2026-05-31T23:26:47Z",
+          "load_count": 1,
+          "pinned": false,
+          "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills/implement-worktree"
+        },
+        "python-pro": {
+          "archived_at": null,
+          "first_seen": "2026-05-31T23:36:03Z",
+          "last_load_index": 3,
+          "last_seen": "2026-05-31T23:36:03Z",
+          "load_count": 1,
+          "pinned": false,
+          "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills/python-pro"
+        }
+      },
+      "skills_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts-plan-consolidate-worktree-skill-usage-into/.codex/skills",
+      "total_loads": 4
+    },
     "user:C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills": {
       "archive_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills.archive",
       "scope": "user",

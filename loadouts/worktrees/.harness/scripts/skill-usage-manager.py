@@ -284,6 +284,200 @@ def record(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_under_canonical(path_text: str, parent_text: str) -> bool:
+    normalized = path_text.replace("\\", "/").rstrip("/")
+    parent = parent_text.replace("\\", "/").rstrip("/")
+    return normalized == parent or normalized.startswith(parent + "/")
+
+
+def remap_canonical_path(path_text: Any, source_repo: Path, target_repo: Path) -> Any:
+    if not isinstance(path_text, str) or not path_text:
+        return path_text
+    source = canonical(source_repo)
+    target = canonical(target_repo)
+    normalized = canonical(Path(path_text))
+    if not is_under_canonical(normalized, source):
+        return normalized
+    suffix = normalized[len(source) :].lstrip("/")
+    return target if not suffix else f"{target}/{suffix}"
+
+
+def merge_skill_metadata(
+    existing: dict[str, Any], incoming: dict[str, Any], *, load_count: int | None = None
+) -> dict[str, Any]:
+    merged = dict(existing)
+    if load_count is None:
+        load_count = int(existing.get("load_count", 0)) + int(
+            incoming.get("load_count", 0)
+        )
+    merged["load_count"] = load_count
+
+    first_seen = [value for value in (existing.get("first_seen"), incoming.get("first_seen")) if value]
+    if first_seen:
+        merged["first_seen"] = min(str(value) for value in first_seen)
+
+    last_seen = [value for value in (existing.get("last_seen"), incoming.get("last_seen")) if value]
+    if last_seen:
+        merged["last_seen"] = max(str(value) for value in last_seen)
+
+    if incoming.get("source_path"):
+        merged["source_path"] = incoming["source_path"]
+    merged["archived_at"] = incoming.get("archived_at", existing.get("archived_at"))
+    merged["pinned"] = bool(existing.get("pinned", False)) or bool(
+        incoming.get("pinned", False)
+    )
+    if incoming.get("archive_path"):
+        merged["archive_path"] = incoming["archive_path"]
+    if incoming.get("last_load_index") is not None:
+        merged["last_load_index"] = incoming["last_load_index"]
+    return merged
+
+
+def normalized_scope_key(scope: str, skills_dir: str) -> str:
+    return f"{scope}:{skills_dir}"
+
+
+def normalize_ledger_for_consolidation(
+    data: dict[str, Any], source_repo: Path, target_repo: Path
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = {"version": data.get("version", 1), "scopes": {}}
+    if "pinned" in data:
+        normalized["pinned"] = data["pinned"]
+
+    for key, raw_scope in data.get("scopes", {}).items():
+        if not isinstance(raw_scope, dict):
+            continue
+        scope = str(raw_scope.get("scope") or key.split(":", 1)[0])
+        skills_dir = remap_canonical_path(
+            raw_scope.get("skills_dir", key.split(":", 1)[-1]),
+            source_repo,
+            target_repo,
+        )
+        archive_dir = remap_canonical_path(
+            raw_scope.get("archive_dir", ""), source_repo, target_repo
+        )
+        if not isinstance(skills_dir, str) or not skills_dir:
+            continue
+
+        target_key = normalized_scope_key(scope, skills_dir)
+        scope_data = normalized["scopes"].setdefault(
+            target_key,
+            {
+                "scope": scope,
+                "skills_dir": skills_dir,
+                "archive_dir": archive_dir,
+                "total_loads": 0,
+                "skills": {},
+            },
+        )
+        scope_data["total_loads"] = int(scope_data.get("total_loads", 0)) + int(
+            raw_scope.get("total_loads", 0)
+        )
+        if archive_dir:
+            scope_data["archive_dir"] = archive_dir
+
+        skills = scope_data.setdefault("skills", {})
+        for name, raw_entry in raw_scope.get("skills", {}).items():
+            if not isinstance(raw_entry, dict):
+                continue
+            entry = dict(raw_entry)
+            if entry.get("source_path"):
+                entry["source_path"] = remap_canonical_path(
+                    entry["source_path"], source_repo, target_repo
+                )
+            if entry.get("archive_path"):
+                entry["archive_path"] = remap_canonical_path(
+                    entry["archive_path"], source_repo, target_repo
+                )
+            existing = skills.get(name, {})
+            skills[name] = merge_skill_metadata(existing, entry)
+
+    return normalized
+
+
+def ensure_normalized_scope(
+    data: dict[str, Any], source_scope: dict[str, Any]
+) -> dict[str, Any]:
+    key = normalized_scope_key(source_scope["scope"], source_scope["skills_dir"])
+    scope_data = data.setdefault("scopes", {}).setdefault(
+        key,
+        {
+            "scope": source_scope["scope"],
+            "skills_dir": source_scope["skills_dir"],
+            "archive_dir": source_scope.get("archive_dir", ""),
+            "total_loads": 0,
+            "skills": {},
+        },
+    )
+    scope_data["scope"] = source_scope["scope"]
+    scope_data["skills_dir"] = source_scope["skills_dir"]
+    scope_data["archive_dir"] = source_scope.get("archive_dir", "")
+    scope_data.setdefault("total_loads", 0)
+    scope_data.setdefault("skills", {})
+    return scope_data
+
+
+def target_pins_for_scope(
+    target_data: dict[str, Any], target_repo: Path, scope_data: dict[str, Any]
+) -> set[str]:
+    root = SkillRoot(
+        scope=str(scope_data["scope"]),
+        skills_dir=Path(str(scope_data["skills_dir"])),
+        archive_dir=Path(str(scope_data.get("archive_dir") or "")),
+        ledger_path=Path("."),
+        repo_root=target_repo if scope_data["scope"] == "repo" else None,
+    )
+    return read_pins(root, target_data)
+
+
+def consolidate(args: argparse.Namespace) -> int:
+    source_repo = Path(args.source_repo).expanduser().resolve()
+    target_repo = Path(args.target_repo).expanduser().resolve()
+    source_data = normalize_ledger_for_consolidation(
+        load_json(Path(args.source_ledger)), source_repo, target_repo
+    )
+    base_data = normalize_ledger_for_consolidation(
+        load_json(Path(args.base_ledger)), source_repo, target_repo
+    )
+    target_path = Path(args.target_ledger)
+    target_data = normalize_ledger_for_consolidation(
+        load_json(target_path), target_repo, target_repo
+    )
+
+    for scope_key, source_scope in source_data.get("scopes", {}).items():
+        base_scope = base_data.get("scopes", {}).get(scope_key, {})
+        target_scope = ensure_normalized_scope(target_data, source_scope)
+        pins = target_pins_for_scope(target_data, target_repo, target_scope)
+        target_skills = target_scope.setdefault("skills", {})
+        base_skills = base_scope.get("skills", {})
+
+        for skill_name, source_entry in source_scope.get("skills", {}).items():
+            base_entry = base_skills.get(skill_name, {})
+            delta = int(source_entry.get("load_count", 0)) - int(
+                base_entry.get("load_count", 0)
+            )
+            if delta <= 0:
+                continue
+
+            target_scope["total_loads"] = int(target_scope.get("total_loads", 0)) + delta
+            existing = target_skills.get(skill_name, {})
+            new_count = int(existing.get("load_count", 0)) + delta
+            merged = merge_skill_metadata(existing, source_entry, load_count=new_count)
+            merged["last_load_index"] = target_scope["total_loads"]
+            if source_entry.get("source_path"):
+                merged["source_path"] = source_entry["source_path"]
+            merged["archived_at"] = None
+            merged["pinned"] = (
+                bool(existing.get("pinned", False))
+                or bool(source_entry.get("pinned", False))
+                or skill_name in pins
+            )
+            target_skills[skill_name] = merged
+
+    save_json_atomic(target_path, target_data)
+    return 0
+
+
 def archive_destination(root: SkillRoot, skill_name: str) -> Path:
     dest = root.archive_dir / skill_name
     if not dest.exists():
@@ -563,6 +757,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     record_parser.add_argument("--repo", help="Repository root for repo scope.")
     record_parser.set_defaults(func=record)
+
+    consolidate_parser = subparsers.add_parser(
+        "consolidate",
+        help=(
+            "One-shot semantic merge of positive skill-usage deltas from a "
+            "source ledger into a target ledger."
+        ),
+        description=(
+            "One-shot command: apply positive source-minus-base skill usage "
+            "deltas once. Replaying the same source/base pair against an "
+            "already-updated target ledger will add the same deltas again."
+        ),
+    )
+    consolidate_parser.add_argument("--source-ledger", required=True)
+    consolidate_parser.add_argument("--base-ledger", required=True)
+    consolidate_parser.add_argument("--target-ledger", required=True)
+    consolidate_parser.add_argument("--source-repo", required=True)
+    consolidate_parser.add_argument("--target-repo", required=True)
+    consolidate_parser.set_defaults(func=consolidate)
 
     for name, help_text in (
         ("scan", "List skills and usage."),
