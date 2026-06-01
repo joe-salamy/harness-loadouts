@@ -275,6 +275,53 @@ class SkillUsageManagerTests(unittest.TestCase):
                 manager.canonical(target_skills / "audit-worktree"),
             )
 
+
+    def test_consolidate_remaps_target_worktree_scope_to_target_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source_repo = root / "repo-feature"
+            integration_repo = root / "repo-integrate"
+            target_repo = root / "repo"
+            source_skills = source_repo / ".codex" / "skills"
+            integration_skills = integration_repo / ".codex" / "skills"
+            target_skills = target_repo / ".codex" / "skills"
+            base = root / "base.json"
+            source = source_repo / ".codex" / "skill-usage.json"
+            target = integration_repo / ".codex" / "skill-usage.json"
+            write_json(source, ledger("repo", source_skills, {"audit-worktree": 1}))
+            write_json(target, ledger("repo", integration_skills, {"merge-conflict-resolver": 2}))
+
+            manager.main(
+                [
+                    "consolidate",
+                    "--source-ledger",
+                    str(source),
+                    "--base-ledger",
+                    str(base),
+                    "--target-ledger",
+                    str(target),
+                    "--source-repo",
+                    str(source_repo),
+                    "--target-repo",
+                    str(target_repo),
+                    "--target-worktree",
+                    str(integration_repo),
+                ]
+            )
+
+            data = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(
+                set(data["scopes"]),
+                {f"repo:{manager.canonical(target_skills)}"},
+            )
+            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            self.assertEqual(scope["skills"]["audit-worktree"]["load_count"], 1)
+            self.assertEqual(scope["skills"]["merge-conflict-resolver"]["load_count"], 2)
+            self.assertEqual(
+                scope["skills"]["merge-conflict-resolver"]["source_path"],
+                manager.canonical(target_skills / "merge-conflict-resolver"),
+            )
+
     def test_consolidate_preserves_target_activity(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

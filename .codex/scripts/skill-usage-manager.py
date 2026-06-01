@@ -432,6 +432,7 @@ def target_pins_for_scope(
 
 def consolidate(args: argparse.Namespace) -> int:
     source_repo = Path(args.source_repo).expanduser().resolve()
+    target_worktree = Path(args.target_worktree or args.target_repo).expanduser().resolve()
     target_repo = Path(args.target_repo).expanduser().resolve()
     source_data = normalize_ledger_for_consolidation(
         load_json(Path(args.source_ledger)), source_repo, target_repo
@@ -441,7 +442,7 @@ def consolidate(args: argparse.Namespace) -> int:
     )
     target_path = Path(args.target_ledger)
     target_data = normalize_ledger_for_consolidation(
-        load_json(target_path), target_repo, target_repo
+        load_json(target_path), target_worktree, target_repo
     )
 
     for scope_key, source_scope in source_data.get("scopes", {}).items():
@@ -775,6 +776,13 @@ def build_parser() -> argparse.ArgumentParser:
     consolidate_parser.add_argument("--target-ledger", required=True)
     consolidate_parser.add_argument("--source-repo", required=True)
     consolidate_parser.add_argument("--target-repo", required=True)
+    consolidate_parser.add_argument(
+        "--target-worktree",
+        help=(
+            "Filesystem root whose paths are present in the target ledger. "
+            "Defaults to --target-repo."
+        ),
+    )
     consolidate_parser.set_defaults(func=consolidate)
 
     for name, help_text in (

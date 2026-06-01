@@ -466,6 +466,29 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
 
             self.assertEqual(events, ["restore", "consolidate", "stage"])
 
+
+    def test_consolidate_skill_usage_targets_primary_repo_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            feature = root / "repo-plan"
+            integration = root / "repo-integrate"
+            repo = root / "repo"
+            baseline = feature / ".codex" / "handoff" / "skill-usage-baseline.json"
+            runner = FakeRunner()
+
+            flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner).consolidate_skill_usage(
+                feature,
+                integration,
+                repo,
+                baseline,
+            )
+
+            args = runner.calls[-1][0]
+            self.assertIn("--target-repo", args)
+            self.assertEqual(args[args.index("--target-repo") + 1], str(repo))
+            self.assertIn("--target-worktree", args)
+            self.assertEqual(args[args.index("--target-worktree") + 1], str(integration))
+
     def test_no_ff_merge_uses_no_commit_and_workflow_commit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"

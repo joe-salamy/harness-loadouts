@@ -422,7 +422,7 @@ Write `{summary.as_posix()}` before finishing.
             if not skill_usage_restored:
                 self.restore_integration_skill_usage_to_head(integration_worktree)
             self.consolidate_skill_usage(
-                names.worktree, integration_worktree, feature_baseline
+                names.worktree, integration_worktree, repo, feature_baseline
             )
             self.stage_integration_changes(integration_worktree)
             self.runner.run(
@@ -570,7 +570,11 @@ Do not commit.
                 ledger.unlink()
 
     def consolidate_skill_usage(
-        self, source_worktree: Path, integration_worktree: Path, baseline_path: Path
+        self,
+        source_worktree: Path,
+        integration_worktree: Path,
+        target_repo: Path,
+        baseline_path: Path,
     ) -> None:
         self.runner.run(
             [
@@ -586,6 +590,8 @@ Do not commit.
                 "--source-repo",
                 str(source_worktree),
                 "--target-repo",
+                str(target_repo),
+                "--target-worktree",
                 str(integration_worktree),
             ],
             integration_worktree,
