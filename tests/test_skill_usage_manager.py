@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 from pathlib import Path
 
 
@@ -85,6 +86,39 @@ class SkillUsageManagerTests(unittest.TestCase):
             self.assertEqual(len(repo_ledger["scopes"]), 1)
             self.assertIn("reviewer", next(iter(user_ledger["scopes"].values()))["skills"])
             self.assertIn("reviewer", next(iter(repo_ledger["scopes"].values()))["skills"])
+
+
+    def test_repo_local_user_record_is_normalized_to_repo_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo_skills = repo / ".codex" / "skills"
+            make_skill(repo_skills, "save-plan")
+
+            with mock.patch.object(manager, "get_git_root", return_value=repo.resolve()):
+                self.assertEqual(
+                    manager.main(
+                        [
+                            "record",
+                            "save-plan",
+                            "--scope",
+                            "user",
+                            "--path",
+                            str(repo_skills),
+                        ]
+                    ),
+                    0,
+                )
+
+            repo_ledger = json.loads(
+                (repo / ".codex" / "skill-usage.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                set(repo_ledger["scopes"]),
+                {f"repo:{manager.canonical(repo_skills)}"},
+            )
+            scope = next(iter(repo_ledger["scopes"].values()))
+            self.assertEqual(scope["scope"], "repo")
+            self.assertEqual(scope["skills"]["save-plan"]["load_count"], 1)
 
     def test_prune_is_dry_run_until_apply(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

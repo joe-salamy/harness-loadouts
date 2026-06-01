@@ -134,11 +134,31 @@ def infer_repo_root_from_skills_dir(
     return Path.cwd().resolve()
 
 
+def repo_root_for_local_skills_dir(
+    skills_dir: Path, explicit_repo: Path | None = None
+) -> Path | None:
+    repo_root = (
+        explicit_repo.expanduser().resolve()
+        if explicit_repo
+        else get_git_root(skills_dir if skills_dir.exists() else Path.cwd())
+    )
+    if repo_root is None:
+        return None
+    active = skills_dir.expanduser().resolve()
+    for rel in REPO_SKILL_DIRS:
+        if active == (repo_root / rel).resolve():
+            return repo_root
+    return None
+
+
 def make_root(
     scope: str, skills_dir: Path | None = None, repo: Path | None = None
 ) -> SkillRoot:
     if scope == "user":
         active = (skills_dir or default_user_skills_dir()).expanduser().resolve()
+        repo_root = repo_root_for_local_skills_dir(active, repo)
+        if repo_root is not None:
+            return make_root("repo", active, repo_root)
         return SkillRoot(
             scope="user",
             skills_dir=active,
