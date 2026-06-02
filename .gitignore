@@ -1,7 +1,6 @@
 # Local/generated docs and notes
 docs/
-.codex/worktree-flow/
-.codex/handoff/
+!loadouts/worktrees/.harness/docs
 
 # OS
 Thumbs.db
