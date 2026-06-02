@@ -1,6 +1,6 @@
 ---
 name: save-plan
-description: Persists an approved implementation plan into a real file in the current repository, defaulting to docs/plans/, verifies the repo file exists, and returns only the repo-relative path for scripts/worktree-flow.py --plan. Use after plan mode or whenever the user asks to save a plan locally/in this repo without implementing it.
+description: Persists an approved implementation plan into a real file in the current repository, defaulting to docs/plans/, verifies the repo file exists, and returns only the repo-relative path. Use after plan mode or whenever the user asks to save a plan locally/in this repo without implementing it.
 ---
 
 # Save Plan

@@ -1,21 +1,11 @@
 ---
 name: save-plan
-description: Persists an approved implementation plan into a real file in the current repository, defaulting to docs/plans/, verifies the repo file exists, and returns only the repo-relative path for scripts/worktree-flow.py --plan. Use after plan mode or whenever the user asks to save a plan locally/in this repo without implementing it.
+description: Persists an approved implementation plan into a real file in the current repository, defaulting to docs/plans/, verifies the repo file exists, and returns only the repo-relative path. Use after plan mode or whenever the user asks to save a plan locally/in this repo without implementing it.
 ---
 
 # Save Plan
 
 Persist the approved plan into the current repository and return the repository-relative path.
-
-## Skill Usage Logging
-
-When loading this skill, record the usage with forward-slash paths:
-
-```powershell
-python .<harness>/scripts/skill-usage-manager.py record save-plan --scope user --path .<harness>/skills
-```
-
-Do not use backslash-escaped script paths inside Bash/JSON strings; `.\.<harness>\scripts\...` can be mangled into an invalid path.
 
 ## Non-negotiable behavior
 
