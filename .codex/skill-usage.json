@@ -7,9 +7,9 @@
         "audit-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:35:26Z",
-          "last_load_index": 4,
-          "last_seen": "2026-05-31T23:35:26Z",
-          "load_count": 1,
+          "last_load_index": 8,
+          "last_seen": "2026-06-03T00:30:23Z",
+          "load_count": 2,
           "pinned": false,
           "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills/audit-worktree"
         },
@@ -25,18 +25,18 @@
         "implement-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:26:47Z",
-          "last_load_index": 3,
-          "last_seen": "2026-05-31T23:26:47Z",
-          "load_count": 1,
+          "last_load_index": 9,
+          "last_seen": "2026-06-03T00:24:30Z",
+          "load_count": 2,
           "pinned": false,
           "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills/implement-worktree"
         },
         "python-pro": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:36:03Z",
-          "last_load_index": 5,
-          "last_seen": "2026-05-31T23:36:03Z",
-          "load_count": 1,
+          "last_load_index": 10,
+          "last_seen": "2026-06-03T00:30:57Z",
+          "load_count": 2,
           "pinned": false,
           "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills/python-pro"
         },
@@ -51,7 +51,7 @@
         }
       },
       "skills_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills",
-      "total_loads": 7
+      "total_loads": 10
     }
   },
   "version": 1

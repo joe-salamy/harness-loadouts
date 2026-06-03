@@ -15,10 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
-HARNESS_DIR = Path(Path(__file__).resolve().parent.parent.name)
-if not HARNESS_DIR.name.startswith("."):
-    HARNESS_DIR = Path(".harness")
-DEFAULT_HARNESS = HARNESS_DIR.name.lstrip(".")
+HARNESS_DIR = Path(".codex")
+DEFAULT_HARNESS = "codex"
 HANDOFF_DIR = HARNESS_DIR / "handoff"
 EMPTY_SKILL_USAGE_LEDGER = {"version": 1, "scopes": {}}
 
@@ -637,7 +635,7 @@ Do not commit.
         raise FlowError(
             "Workflow handoff artifacts were committed, but they must remain "
             f"untracked:\n{tracked}\nRemove them from the branch index before "
-            "merging, for example: git rm --cached -- .codex/handoff/*"
+            f"merging, for example: git rm --cached -- {HANDOFF_DIR.as_posix()}/*"
         )
 
     def git_common_dir(self, worktree: Path) -> Path | None:

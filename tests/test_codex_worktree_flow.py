@@ -11,12 +11,20 @@ from unittest import mock
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".codex" / "scripts" / "worktree-flow.py"
-SPEC = importlib.util.spec_from_file_location("codex_worktree_flow", SCRIPT_PATH)
-flow = importlib.util.module_from_spec(SPEC)
-assert SPEC and SPEC.loader
-sys.modules[SPEC.name] = flow
-SPEC.loader.exec_module(flow)
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / ".codex" / "scripts"
+
+
+def load_flow_module(name: str, script_name: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / script_name)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+flow = load_flow_module("codex_worktree_flow", "worktree-flow-codex.py")
+omp_flow = load_flow_module("omp_worktree_flow", "worktree-flow-omp.py")
 
 
 class FakeRunner:
@@ -120,6 +128,43 @@ class CommandRunnerTests(unittest.TestCase):
             self.assertRaisesRegex(flow.FlowError, "Failed to run command: codex exec --help"),
         ):
             flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
+
+
+class OmpVariantTests(unittest.TestCase):
+    def test_omp_defaults_are_explicit(self) -> None:
+        self.assertEqual(omp_flow.DEFAULT_HARNESS, "omp")
+        self.assertEqual(omp_flow.HARNESS_DIR, Path(".omp"))
+        self.assertEqual(omp_flow.HANDOFF_DIR, Path(".omp") / "handoff")
+
+    def test_omp_parser_defaults_to_omp_harness(self) -> None:
+        args = omp_flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
+
+        self.assertEqual(args.harness, "omp")
+
+    def test_omp_harness_exec_uses_omp_command_and_handoff_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            (repo / ".omp").mkdir()
+            runner = FakeRunner()
+            config = omp_flow.FlowConfig(
+                repo=repo,
+                plan=repo / "plan.md",
+                base="main",
+                model=None,
+                harness=omp_flow.DEFAULT_HARNESS,
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+            subject = omp_flow.HarnessWorktreeFlow(config, runner)
+
+            output_file = repo / ".omp" / "handoff" / "implementation-final-response.md"
+            subject.harness_exec(repo, "Prompt", output_file)
+
+            args = runner.calls[-1][0]
+            self.assertEqual(args[:2], ("omp", "exec"))
+            self.assertIn(str(output_file), args)
+            self.assertIn(str((repo / ".omp").resolve()), args)
 
 
 class HarnessWorktreeFlowTests(unittest.TestCase):

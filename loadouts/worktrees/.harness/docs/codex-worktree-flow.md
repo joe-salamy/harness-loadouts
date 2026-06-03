@@ -1,6 +1,9 @@
 # <harness> Worktree Flow
 
-`worktree-flow.py` runs the repeatable part of the workflow after you have an approved plan. In exported loadouts, the script lives at `.<harness>/scripts/worktree-flow.py`.
+`worktree-flow-codex.py` and `worktree-flow-omp.py` run the repeatable part of the workflow after you have an approved plan. They use the same workflow and differ only in their default harness CLI and artifact directory:
+
+- `worktree-flow-codex.py` defaults to `codex` and `.codex/`.
+- `worktree-flow-omp.py` defaults to `omp` and `.omp/`.
 
 1. Creates a feature branch and Git worktree from `main`.
 2. Runs <harness> implementation in that worktree.
@@ -12,26 +15,34 @@
 
 ## Quick Start
 
-Create and approve a plan, save it as Markdown, then run the active harness copy:
+Create and approve a plan, save it as Markdown, then run the matching harness copy.
+
+Codex:
 
 ```powershell
-python .\<harness>\scripts\worktree-flow.py --plan docs\plans\my-plan.md
+python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md
+```
+
+Oh My Pi:
+
+```powershell
+python .\.omp\scripts\worktree-flow-omp.py --plan docs\plans\my-plan.md
 ```
 
 Common options:
 
 ```powershell
 # Show Git/<harness> commands without running them
-python .\<harness>\scripts\worktree-flow.py --plan docs\plans\my-plan.md --dry-run
+python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --dry-run
 
 # Implement and audit, but stop before merging
-python .\<harness>\scripts\worktree-flow.py --plan docs\plans\my-plan.md --merge-mode stop
+python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --merge-mode stop
 
 # Keep feature/integration worktrees after completion
-python .\<harness>\scripts\worktree-flow.py --plan docs\plans\my-plan.md --keep-worktrees
+python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --keep-worktrees
 
 # Use a non-main base branch
-python .\<harness>\scripts\worktree-flow.py --plan docs\plans\my-plan.md --base develop
+python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --base develop
 ```
 
 ## Required Skills
