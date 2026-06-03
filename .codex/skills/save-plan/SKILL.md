@@ -13,7 +13,7 @@ Persist the approved plan into the current repository and return the repository-
 - Do not report a destination path until that file exists in the current repository.
 - Default destination is `docs/plans/`.
 - If the user says "save-plan", "save it locally", "save it in this repo", or asks for a path usable with `worktree-flow.py --plan`, create a real repo file under `docs/plans/` unless they named another repo-relative path.
-- After writing or copying, read the saved repo file (at least the beginning and end) to verify it exists and contains the plan.
+- After copying, read the saved repo file (at least the beginning and end) to verify it exists and contains the plan.
 - Final response should be only the repository-relative path, unless the user asks for more.
 
 ## Workflow
@@ -27,8 +27,8 @@ Persist the approved plan into the current repository and return the repository-
    - Use a concise kebab-case filename derived from the plan title or goal.
    - If the path already exists, choose a unique suffix unless the user asked to overwrite.
 3. Persist the plan:
-   - When the source is a file or harness URI such as `local://PLAN.md`, preserve the content exactly in the repo destination. Use file-copy behavior when available; otherwise read the source and write the destination.
-   - Use `write` only when creating the repo destination from conversation text or when direct copy is not available.
+   - When the source is a file or harness URI such as `local://PLAN.md`, preserve the content exactly in the repo destination by using Bash `cp` (or the platform-equivalent shell copy command). Do not use the `write` tool for file-to-file or URI-to-file plan copies.
+   - Use `write` only when creating the repo destination from conversation text because no source file exists to copy.
    - Do not edit implementation files and do not implement the plan.
 4. Verify:
    - Read the destination file from the repo path.
