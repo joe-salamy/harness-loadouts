@@ -41,15 +41,16 @@ Stop before editing if the current branch is `main` or if the current path is th
 
 4. Run focused tests or checks appropriate to the changed files. If a relevant check cannot be run, record the reason clearly.
 
-5. Commit the implementation changes:
+5. Commit all intended implementation changes:
 
 ```powershell
 git status --short
 git add <changed-files>
 git commit -m "Implement plan"
+git status --short
 ```
 
-Do not include `scratchpad.md`.
+Do not include `scratchpad.md` or workflow handoff artifacts. The workflow merge only receives committed branch changes; uncommitted or unstaged files left in the worktree will not be included in the squash/no-ff integration merge.
 
 6. Write `.<harness>/handoff/implementation-summary.md` with:
    - Plan path

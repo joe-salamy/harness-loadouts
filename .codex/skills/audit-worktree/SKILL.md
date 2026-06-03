@@ -79,15 +79,16 @@ Keep all file operations in the implementation worktree.
 
 For frontend changes, prefer the existing package scripts from `frontend/package.json`. If generated frontend types are affected, run the documented generation flow only when the API server requirement can be satisfied; otherwise report the skipped generation clearly.
 
-9. Commit audit fixes on the current branch if changes were made:
+9. Commit all intended audit fixes on the current branch if changes were made:
 
 ```powershell
 git status --short
 git add <fixed-files>
 git commit -m "Fix audit findings"
+git status --short
 ```
 
-Do not include `scratchpad.md`. If no fixes were needed, do not create an empty commit.
+Do not include `scratchpad.md` or workflow handoff artifacts. If no fixes were needed, do not create an empty commit. The workflow merge only receives committed branch changes; uncommitted or unstaged files left in the worktree will not be included in the squash/no-ff integration merge.
 
 10. Final response must include:
 
