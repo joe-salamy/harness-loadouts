@@ -1,6 +1,6 @@
 # <harness> Worktree Flow
 
-`worktree-flow-codex.py` and `worktree-flow-omp.py` run the repeatable part of the workflow after you have an approved plan. They use the same workflow and differ only in their default harness CLI and artifact directory:
+`worktree-flow.py` contains the shared implementation for the repeatable part of the workflow after you have an approved plan. `worktree-flow-codex.py` and `worktree-flow-omp.py` are compatibility wrappers that call the shared implementation with explicit harness defaults:
 
 - `worktree-flow-codex.py` defaults to `codex` and `.codex/`.
 - `worktree-flow-omp.py` defaults to `omp` and `.omp/`.
@@ -10,8 +10,9 @@
 3. Requires an implementation commit and handoff summary.
 4. Runs a fresh <harness> audit pass.
 5. Requires an audit summary.
-6. Finishes through a temporary integration worktree.
-7. Squash-merges by default and cleans up only after a successful merge.
+6. Verifies no non-handoff changes are left pending.
+7. Finishes through a temporary integration worktree.
+8. Squash-merges by default and cleans up only after a successful merge.
 
 ## Quick Start
 
@@ -108,3 +109,5 @@ These archive directories are the durable record after the feature and integrati
 - Default merge mode is `squash`, so implementation/audit commits are treated as execution detail.
 - The primary checkout is updated only after a merge succeeds in a temporary integration worktree.
 - Worktrees and branches are deleted only after successful integration unless `--keep-worktrees` is set.
+- The implementation phase must create at least one commit and produce a diff from the base branch.
+- The audit phase may be a no-op with no new commit when the worktree is clean outside `.<harness>/handoff/`.

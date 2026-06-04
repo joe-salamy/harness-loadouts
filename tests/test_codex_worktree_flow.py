@@ -23,7 +23,8 @@ def load_flow_module(name: str, script_name: str):
     return module
 
 
-flow = load_flow_module("codex_worktree_flow", "worktree-flow-codex.py")
+flow = load_flow_module("worktree_flow", "worktree-flow.py")
+codex_flow = load_flow_module("codex_worktree_flow", "worktree-flow-codex.py")
 omp_flow = load_flow_module("omp_worktree_flow", "worktree-flow-omp.py")
 
 
@@ -130,7 +131,25 @@ class CommandRunnerTests(unittest.TestCase):
             flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
 
 
-class OmpVariantTests(unittest.TestCase):
+class WrapperVariantTests(unittest.TestCase):
+    def test_codex_defaults_are_explicit(self) -> None:
+        self.assertEqual(codex_flow.DEFAULT_HARNESS, "codex")
+        self.assertEqual(codex_flow.HARNESS_DIR, Path(".codex"))
+        self.assertEqual(codex_flow.HANDOFF_DIR, Path(".codex") / "handoff")
+
+    def test_codex_parser_defaults_to_codex_harness(self) -> None:
+        args = codex_flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
+
+        self.assertEqual(args.harness, "codex")
+        self.assertEqual(args.harness_dir, ".codex")
+
+    def test_shared_parser_can_override_harness_dir(self) -> None:
+        args = flow.build_parser().parse_args(
+            ["--plan", "docs/plans/p.md", "--harness-dir", ".custom"]
+        )
+
+        self.assertEqual(args.harness_dir, ".custom")
+
     def test_omp_defaults_are_explicit(self) -> None:
         self.assertEqual(omp_flow.DEFAULT_HARNESS, "omp")
         self.assertEqual(omp_flow.HARNESS_DIR, Path(".omp"))
@@ -140,6 +159,7 @@ class OmpVariantTests(unittest.TestCase):
         args = omp_flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
 
         self.assertEqual(args.harness, "omp")
+        self.assertEqual(args.harness_dir, ".omp")
 
     def test_omp_harness_exec_uses_omp_command_and_handoff_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -153,6 +173,7 @@ class OmpVariantTests(unittest.TestCase):
                 base="main",
                 model=None,
                 harness=omp_flow.DEFAULT_HARNESS,
+                harness_dir=omp_flow.HARNESS_DIR,
                 merge_mode="squash",
                 keep_worktrees=False,
             )
@@ -182,6 +203,7 @@ class OmpVariantTests(unittest.TestCase):
                 base="main",
                 model=None,
                 harness=omp_flow.DEFAULT_HARNESS,
+                harness_dir=omp_flow.HARNESS_DIR,
                 merge_mode="squash",
                 keep_worktrees=False,
             )
@@ -213,6 +235,7 @@ class OmpVariantTests(unittest.TestCase):
                 base="main",
                 model=None,
                 harness=omp_flow.DEFAULT_HARNESS,
+                harness_dir=omp_flow.HARNESS_DIR,
                 merge_mode="squash",
                 keep_worktrees=False,
             )
@@ -454,6 +477,9 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.create_feature_worktree = lambda _repo, _names: None
             subject.run_implementation = lambda _worktree, _plan: None
             subject.run_audit = lambda _worktree, _plan: None
+            subject.require_implementation_invariants = lambda _worktree, _branch: None
+            subject.head_rev = lambda _worktree: "before"
+            subject.require_audit_invariants = lambda _worktree, _branch, _head: None
             subject.unique_feature_names = lambda _repo, _slug: flow.Names(
                 "plan", "feature/plan", worktree, "plan-run"
             )
@@ -508,6 +534,238 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(flow.FlowError, "Workflow handoff artifacts"):
                 subject.require_no_tracked_handoff_artifacts(repo, "feature/plan")
 
+    def test_implementation_fails_when_no_commit_exists_after_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner({("git", "rev-list", "--count", "main..feature/plan"): "0\n"}),
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "did not create any commits"):
+                subject.require_implementation_invariants(repo, "feature/plan")
+
+    def test_implementation_fails_when_branch_has_no_diff_from_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        ("git", "rev-list", "--count", "main..feature/plan"): "1\n",
+                        (
+                            "git",
+                            "diff",
+                            "--quiet",
+                            "main...feature/plan",
+                            "--",
+                            ".",
+                        ): flow.CommandResult(
+                            (
+                                "git",
+                                "diff",
+                                "--quiet",
+                                "main...feature/plan",
+                                "--",
+                                ".",
+                            ),
+                            repo,
+                            0,
+                        ),
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "no file changes"):
+                subject.require_implementation_invariants(repo, "feature/plan")
+
+    def test_implementation_fails_when_non_handoff_file_remains(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        ("git", "rev-list", "--count", "main..feature/plan"): "1\n",
+                        (
+                            "git",
+                            "diff",
+                            "--quiet",
+                            "main...feature/plan",
+                            "--",
+                            ".",
+                        ): flow.CommandResult(
+                            (
+                                "git",
+                                "diff",
+                                "--quiet",
+                                "main...feature/plan",
+                                "--",
+                                ".",
+                            ),
+                            repo,
+                            1,
+                        ),
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): "?? app.py\n?? .codex/handoff/implementation-summary.md\n",
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "non-handoff changes"):
+                subject.require_implementation_invariants(repo, "feature/plan")
+
+    def test_implementation_allows_untracked_handoff_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        ("git", "rev-list", "--count", "main..feature/plan"): "1\n",
+                        (
+                            "git",
+                            "diff",
+                            "--quiet",
+                            "main...feature/plan",
+                            "--",
+                            ".",
+                        ): flow.CommandResult(
+                            (
+                                "git",
+                                "diff",
+                                "--quiet",
+                                "main...feature/plan",
+                                "--",
+                                ".",
+                            ),
+                            repo,
+                            1,
+                        ),
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): "?? .codex/handoff/implementation-summary.md\n",
+                    }
+                ),
+            )
+
+            subject.require_implementation_invariants(repo, "feature/plan")
+
+    def test_audit_allows_no_new_commit_when_clean_outside_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): "?? .codex/handoff/audit-summary.md\n",
+                        ("git", "rev-parse", "HEAD"): "before\n",
+                    }
+                ),
+            )
+
+            subject.require_audit_invariants(repo, "feature/plan", "before")
+
+    def test_audit_allows_new_commit_when_clean_outside_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): "?? .codex/handoff/audit-summary.md\n",
+                        ("git", "rev-parse", "HEAD"): "after\n",
+                        (
+                            "git",
+                            "diff",
+                            "--quiet",
+                            "main...feature/plan",
+                            "--",
+                            ".",
+                        ): flow.CommandResult(
+                            (
+                                "git",
+                                "diff",
+                                "--quiet",
+                                "main...feature/plan",
+                                "--",
+                                ".",
+                            ),
+                            repo,
+                            1,
+                        ),
+                    }
+                ),
+            )
+
+            subject.require_audit_invariants(repo, "feature/plan", "before")
+
+    def test_audit_fails_when_non_handoff_changes_remain(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): " M app.py\n",
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "non-handoff changes"):
+                subject.require_audit_invariants(repo, "feature/plan", "before")
+
+    def test_final_guard_fails_when_non_handoff_changes_appear_after_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, repo / "plan.md"),
+                FakeRunner(
+                    {
+                        (
+                            "git",
+                            "ls-tree",
+                            "-r",
+                            "--name-only",
+                            "feature/plan",
+                            "--",
+                            ".codex/handoff",
+                        ): "",
+                        (
+                            "git",
+                            "status",
+                            "--porcelain",
+                            "--untracked-files=all",
+                        ): "?? leaked.txt\n",
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(flow.FlowError, "Pre-integration"):
+                subject.require_ready_for_integration(repo, "feature/plan")
+
     def test_handoff_prompts_forbid_committing_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
@@ -556,6 +814,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
@@ -606,6 +865,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
@@ -660,6 +920,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
@@ -688,6 +949,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
@@ -781,6 +1043,10 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.create_feature_worktree = lambda _repo, _names: None
             subject.run_implementation = lambda _worktree, _plan: None
             subject.run_audit = lambda _worktree, _plan: None
+            subject.require_implementation_invariants = lambda _worktree, _branch: None
+            subject.head_rev = lambda _worktree: "before"
+            subject.require_audit_invariants = lambda _worktree, _branch, _head: None
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
             subject.unique_feature_names = lambda _repo, _slug: flow.Names("plan", "feature/plan", worktree, "plan-run")
             subject.validate = lambda _repo, _plan: None
             subject.finish = lambda *_args: (_ for _ in ()).throw(AssertionError("finish should not run"))
@@ -840,6 +1106,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.cleanup = lambda *_args: (_ for _ in ()).throw(AssertionError("cleanup should not run"))
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
             subject.prepare_harness_permissions = lambda _path: None
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             with self.assertRaises(flow.FlowError):
                 subject.finish(
@@ -868,6 +1135,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run")
             )
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             with self.assertRaisesRegex(flow.FlowError, "merge --squash"):
                 subject.finish(
@@ -896,6 +1164,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.prepare_harness_permissions = lambda _path: None
             subject.resolve_conflict = lambda *_args: resolved.append(True)
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
@@ -966,6 +1235,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             base="main",
             model=model,
             harness="codex",
+            harness_dir=Path(".codex"),
             merge_mode=merge_mode,
             keep_worktrees=False,
         )
