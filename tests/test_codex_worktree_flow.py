@@ -1089,6 +1089,46 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertIn("Do not commit", prompt)
             self.assertNotIn("commit audit fixes if changes are made", prompt.lower())
 
+    def test_cleanup_forces_prunes_and_removes_remaining_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            integration = Path(temp) / "repo-integrate-plan-run"
+            repo.mkdir()
+            feature.mkdir()
+            integration.mkdir()
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, feature / "docs" / "plans" / "plan.md"), runner
+            )
+
+            subject.cleanup(
+                repo,
+                integration,
+                "integration/plan-run",
+                flow.Names("plan", "feature/plan", feature, "plan-run"),
+            )
+
+            self.assertFalse(integration.exists())
+            self.assertFalse(feature.exists())
+            self.assertIn(
+                (
+                    ("git", "worktree", "remove", "--force", str(integration)),
+                    repo,
+                    False,
+                ),
+                runner.calls,
+            )
+            self.assertIn(
+                (
+                    ("git", "worktree", "remove", "--force", str(feature)),
+                    repo,
+                    False,
+                ),
+                runner.calls,
+            )
+            self.assertIn((("git", "worktree", "prune"), repo, False), runner.calls)
+
     def test_finish_does_not_cleanup_if_primary_merge_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"

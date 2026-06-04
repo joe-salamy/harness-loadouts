@@ -976,11 +976,18 @@ foreach ($item in $items) {
         integration_branch: str,
         names: Names,
     ) -> None:
+        repo_root = repo.resolve()
         for worktree in (integration_worktree, names.worktree):
+            self.runner.run(
+                ["git", "worktree", "remove", "--force", str(worktree)],
+                repo,
+                check=False,
+            )
             if worktree.exists():
-                self.runner.run(
-                    ["git", "worktree", "remove", str(worktree)], repo, check=False
-                )
+                if worktree.resolve() == repo_root:
+                    raise FlowError("Refusing to remove repository root during cleanup.")
+                shutil.rmtree(worktree)
+        self.runner.run(["git", "worktree", "prune"], repo, check=False)
         self.runner.run(["git", "branch", "-d", integration_branch], repo, check=False)
         # Squash merges do not mark the feature branch as merged, so force-delete
         # only after the integration branch has fast-forwarded successfully.
