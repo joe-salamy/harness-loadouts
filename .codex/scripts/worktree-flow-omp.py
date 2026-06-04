@@ -171,7 +171,7 @@ class HarnessWorktreeFlow:
         plan_in_worktree = self.ensure_plan_in_worktree(
             repo, plan, names.worktree, names.slug
         )
-        self.snapshot_skill_usage_baseline(names.worktree)
+        self.snapshot_skill_usage_baseline(names.worktree, repo)
         self.run_implementation(names.worktree, plan_in_worktree)
         self.require_file(names.worktree / HANDOFF_DIR / "implementation-summary.md")
         self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
@@ -388,7 +388,7 @@ Write `{summary.as_posix()}` before finishing.
                     unmerged = self.unmerged_paths(integration_worktree)
                     if unmerged:
                         self.restore_integration_skill_usage_to_head(
-                            integration_worktree
+                            integration_worktree, repo
                         )
                         skill_usage_restored = True
                     if unmerged and not self.only_skill_usage_unmerged(unmerged):
@@ -407,7 +407,7 @@ Write `{summary.as_posix()}` before finishing.
                     unmerged = self.unmerged_paths(integration_worktree)
                     if unmerged:
                         self.restore_integration_skill_usage_to_head(
-                            integration_worktree
+                            integration_worktree, repo
                         )
                         skill_usage_restored = True
                     if unmerged and not self.only_skill_usage_unmerged(unmerged):
@@ -418,7 +418,7 @@ Write `{summary.as_posix()}` before finishing.
                         raise FlowError(format_command_failure(merge))
 
             if not skill_usage_restored:
-                self.restore_integration_skill_usage_to_head(integration_worktree)
+                self.restore_integration_skill_usage_to_head(integration_worktree, repo)
             self.consolidate_skill_usage(
                 names.worktree, integration_worktree, repo, feature_baseline
             )
@@ -528,9 +528,21 @@ Do not commit.
                 return candidate / "skill-usage.json"
         return repo_root / ".skill-usage.json"
 
-    def snapshot_skill_usage_baseline(self, worktree: Path) -> Path:
+    def skill_usage_ledger_in_worktree(
+        self, worktree: Path, reference_repo: Path
+    ) -> Path:
+        rel = self.skill_usage_ledger(reference_repo).relative_to(reference_repo)
+        return worktree / rel
+
+    def snapshot_skill_usage_baseline(
+        self, worktree: Path, reference_repo: Path | None = None
+    ) -> Path:
         baseline = worktree / HANDOFF_DIR / "skill-usage-baseline.json"
-        ledger = self.skill_usage_ledger(worktree)
+        ledger = (
+            self.skill_usage_ledger_in_worktree(worktree, reference_repo)
+            if reference_repo is not None
+            else self.skill_usage_ledger(worktree)
+        )
         if self.runner.dry_run:
             print(f"+ snapshot skill usage {ledger} {baseline}")
             return baseline
@@ -545,8 +557,14 @@ Do not commit.
             )
         return baseline
 
-    def restore_integration_skill_usage_to_head(self, integration_worktree: Path) -> None:
-        ledger = self.skill_usage_ledger(integration_worktree)
+    def restore_integration_skill_usage_to_head(
+        self, integration_worktree: Path, reference_repo: Path | None = None
+    ) -> None:
+        ledger = (
+            self.skill_usage_ledger_in_worktree(integration_worktree, reference_repo)
+            if reference_repo is not None
+            else self.skill_usage_ledger(integration_worktree)
+        )
         rel = ledger.relative_to(integration_worktree).as_posix()
         exists_at_head = (
             self.runner.run(
@@ -580,11 +598,17 @@ Do not commit.
                 str(self.skill_usage_script(integration_worktree)),
                 "consolidate",
                 "--source-ledger",
-                str(self.skill_usage_ledger(source_worktree)),
+                str(
+                    self.skill_usage_ledger_in_worktree(source_worktree, target_repo)
+                ),
                 "--base-ledger",
                 str(baseline_path),
                 "--target-ledger",
-                str(self.skill_usage_ledger(integration_worktree)),
+                str(
+                    self.skill_usage_ledger_in_worktree(
+                        integration_worktree, target_repo
+                    )
+                ),
                 "--source-repo",
                 str(source_worktree),
                 "--target-repo",
@@ -608,8 +632,16 @@ Do not commit.
 
     def only_skill_usage_unmerged(self, paths: Sequence[str]) -> bool:
         expected = {
-            self.skill_usage_ledger(Path()).as_posix().lstrip("./"),
-            (HARNESS_DIR / "skill-usage.json").as_posix(),
+            f"{harness_dir}/skill-usage.json"
+            for harness_dir in (
+                HARNESS_DIR.as_posix(),
+                ".harness",
+                ".codex",
+                ".opencode",
+                ".claude",
+                ".omp",
+                ".agents",
+            )
         }
         return bool(paths) and all(path.replace("\\", "/") in expected for path in paths)
 

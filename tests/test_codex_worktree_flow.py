@@ -166,6 +166,61 @@ class OmpVariantTests(unittest.TestCase):
             self.assertIn(str(output_file), args)
             self.assertIn(str((repo / ".omp").resolve()), args)
 
+    def test_omp_consolidates_existing_repo_ledger_not_created_omp_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            feature = root / "repo-feature"
+            integration = root / "repo-integration"
+            (repo / ".codex").mkdir(parents=True)
+            (integration / ".omp").mkdir(parents=True)
+            baseline = feature / ".omp" / "handoff" / "skill-usage-baseline.json"
+            runner = FakeRunner()
+            config = omp_flow.FlowConfig(
+                repo=repo,
+                plan=repo / "plan.md",
+                base="main",
+                model=None,
+                harness=omp_flow.DEFAULT_HARNESS,
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+
+            omp_flow.HarnessWorktreeFlow(config, runner).consolidate_skill_usage(
+                feature,
+                integration,
+                repo,
+                baseline,
+            )
+
+            args = runner.calls[-1][0]
+            self.assertEqual(
+                args[args.index("--source-ledger") + 1],
+                str(feature / ".codex" / "skill-usage.json"),
+            )
+            self.assertEqual(
+                args[args.index("--target-ledger") + 1],
+                str(integration / ".codex" / "skill-usage.json"),
+            )
+
+    def test_omp_treats_codex_skill_usage_conflict_as_usage_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            repo.mkdir()
+            config = omp_flow.FlowConfig(
+                repo=repo,
+                plan=repo / "plan.md",
+                base="main",
+                model=None,
+                harness=omp_flow.DEFAULT_HARNESS,
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+
+            subject = omp_flow.HarnessWorktreeFlow(config, FakeRunner())
+
+            self.assertTrue(subject.only_skill_usage_unmerged([".codex/skill-usage.json"]))
+
 
 class HarnessWorktreeFlowTests(unittest.TestCase):
     def test_slug_uses_first_h1(self) -> None:
@@ -497,7 +552,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner())
             subject.prepare_harness_permissions = lambda _path: None
             events: list[str] = []
-            subject.restore_integration_skill_usage_to_head = lambda _worktree: events.append("restore")
+            subject.restore_integration_skill_usage_to_head = lambda *_args: events.append("restore")
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
@@ -547,7 +602,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 self.config(repo, plan, merge_mode="no-ff"), FakeRunner()
             )
             subject.prepare_harness_permissions = lambda _path: None
-            subject.restore_integration_skill_usage_to_head = lambda _worktree: None
+            subject.restore_integration_skill_usage_to_head = lambda *_args: None
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
@@ -601,7 +656,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run for usage-only conflicts")
             )
-            subject.restore_integration_skill_usage_to_head = lambda _worktree: None
+            subject.restore_integration_skill_usage_to_head = lambda *_args: None
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
@@ -628,7 +683,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             )
             subject.prepare_harness_permissions = lambda _path: None
             events: list[str] = []
-            subject.restore_integration_skill_usage_to_head = lambda _worktree: events.append("restore")
+            subject.restore_integration_skill_usage_to_head = lambda *_args: events.append("restore")
             subject.resolve_conflict = lambda *_args: events.append("resolve")
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
