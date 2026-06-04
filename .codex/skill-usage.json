@@ -43,15 +43,15 @@
         "save-plan": {
           "archived_at": null,
           "first_seen": "2026-05-31T17:14:58Z",
-          "last_load_index": 7,
-          "last_seen": "2026-06-03T00:18:32Z",
-          "load_count": 3,
+          "last_load_index": 15,
+          "last_seen": "2026-06-04T18:20:33Z",
+          "load_count": 4,
           "pinned": false,
           "source_path": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills/save-plan"
         }
       },
       "skills_dir": "C:/Users/joesa/Documents/law-school-python/harness-loadouts/.codex/skills",
-      "total_loads": 14
+      "total_loads": 15
     }
   },
   "version": 1
