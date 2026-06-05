@@ -1,9 +1,9 @@
 # <harness> Worktree Flow
 
-`worktree-flow.py` contains the shared implementation for the repeatable part of the workflow after you have an approved plan. `worktree-flow-codex.py` and `worktree-flow-omp.py` are compatibility wrappers that call the shared implementation with explicit harness defaults:
+`worktree-flow.py` is the single entrypoint for the repeatable part of the workflow after you have an approved plan. Select the target harness with `--harness` and `--harness-dir`:
 
-- `worktree-flow-codex.py` defaults to `codex` and `.codex/`.
-- `worktree-flow-omp.py` defaults to `omp` and `.omp/`.
+- Codex: `--harness codex --harness-dir .codex`
+- Oh My Pi: `--harness omp --harness-dir .omp`
 
 1. Creates a feature branch and Git worktree from `main`.
 2. Runs <harness> implementation in that worktree.
@@ -16,34 +16,34 @@
 
 ## Quick Start
 
-Create and approve a plan, save it as Markdown, then run the matching harness copy.
+Create and approve a plan, save it as Markdown, then run the shared workflow with the desired harness settings.
 
 Codex:
 
 ```powershell
-python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex
 ```
 
 Oh My Pi:
 
 ```powershell
-python .\.omp\scripts\worktree-flow-omp.py --plan docs\plans\my-plan.md
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness omp --harness-dir .omp
 ```
 
 Common options:
 
 ```powershell
 # Show Git/<harness> commands without running them
-python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --dry-run
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --dry-run
 
 # Implement and audit, but stop before merging
-python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --merge-mode stop
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --merge-mode stop
 
 # Keep feature/integration worktrees after completion
-python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --keep-worktrees
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --keep-worktrees
 
 # Use a non-main base branch
-python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --base develop
+python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --base develop
 ```
 
 ## Required Skills

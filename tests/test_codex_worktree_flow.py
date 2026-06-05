@@ -24,8 +24,6 @@ def load_flow_module(name: str, script_name: str):
 
 
 flow = load_flow_module("worktree_flow", "worktree-flow.py")
-codex_flow = load_flow_module("codex_worktree_flow", "worktree-flow-codex.py")
-omp_flow = load_flow_module("omp_worktree_flow", "worktree-flow-omp.py")
 
 
 class FakeRunner:
@@ -131,17 +129,34 @@ class CommandRunnerTests(unittest.TestCase):
             flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
 
 
-class WrapperVariantTests(unittest.TestCase):
-    def test_codex_defaults_are_explicit(self) -> None:
-        self.assertEqual(codex_flow.DEFAULT_HARNESS, "codex")
-        self.assertEqual(codex_flow.HARNESS_DIR, Path(".codex"))
-        self.assertEqual(codex_flow.HANDOFF_DIR, Path(".codex") / "handoff")
+class SharedHarnessSelectionTests(unittest.TestCase):
+    def test_shared_defaults_are_inferred_from_active_script_directory(self) -> None:
+        self.assertEqual(flow.DEFAULT_HARNESS, "omp")
+        self.assertEqual(flow.HARNESS_DIR, Path(".omp"))
+        self.assertEqual(flow.HANDOFF_DIR, Path(".omp") / "handoff")
 
-    def test_codex_parser_defaults_to_codex_harness(self) -> None:
-        args = codex_flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
+    def test_shared_parser_accepts_codex_harness_options(self) -> None:
+        args = flow.build_parser().parse_args(
+            [
+                "--plan",
+                "docs/plans/p.md",
+                "--harness",
+                "codex",
+                "--harness-dir",
+                ".codex",
+            ]
+        )
 
         self.assertEqual(args.harness, "codex")
         self.assertEqual(args.harness_dir, ".codex")
+
+    def test_shared_parser_accepts_omp_harness_options(self) -> None:
+        args = flow.build_parser().parse_args(
+            ["--plan", "docs/plans/p.md", "--harness", "omp", "--harness-dir", ".omp"]
+        )
+
+        self.assertEqual(args.harness, "omp")
+        self.assertEqual(args.harness_dir, ".omp")
 
     def test_shared_parser_can_override_harness_dir(self) -> None:
         args = flow.build_parser().parse_args(
@@ -150,34 +165,23 @@ class WrapperVariantTests(unittest.TestCase):
 
         self.assertEqual(args.harness_dir, ".custom")
 
-    def test_omp_defaults_are_explicit(self) -> None:
-        self.assertEqual(omp_flow.DEFAULT_HARNESS, "omp")
-        self.assertEqual(omp_flow.HARNESS_DIR, Path(".omp"))
-        self.assertEqual(omp_flow.HANDOFF_DIR, Path(".omp") / "handoff")
-
-    def test_omp_parser_defaults_to_omp_harness(self) -> None:
-        args = omp_flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
-
-        self.assertEqual(args.harness, "omp")
-        self.assertEqual(args.harness_dir, ".omp")
-
     def test_omp_harness_exec_uses_omp_command_and_handoff_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
             (repo / ".omp").mkdir()
             runner = FakeRunner()
-            config = omp_flow.FlowConfig(
+            config = flow.FlowConfig(
                 repo=repo,
                 plan=repo / "plan.md",
                 base="main",
                 model=None,
-                harness=omp_flow.DEFAULT_HARNESS,
-                harness_dir=omp_flow.HARNESS_DIR,
+                harness="omp",
+                harness_dir=Path(".omp"),
                 merge_mode="squash",
                 keep_worktrees=False,
             )
-            subject = omp_flow.HarnessWorktreeFlow(config, runner)
+            subject = flow.HarnessWorktreeFlow(config, runner)
 
             output_file = repo / ".omp" / "handoff" / "implementation-final-response.md"
             subject.harness_exec(repo, "Prompt", output_file)
@@ -197,18 +201,18 @@ class WrapperVariantTests(unittest.TestCase):
             (integration / ".omp").mkdir(parents=True)
             baseline = feature / ".omp" / "handoff" / "skill-usage-baseline.json"
             runner = FakeRunner()
-            config = omp_flow.FlowConfig(
+            config = flow.FlowConfig(
                 repo=repo,
                 plan=repo / "plan.md",
                 base="main",
                 model=None,
-                harness=omp_flow.DEFAULT_HARNESS,
-                harness_dir=omp_flow.HARNESS_DIR,
+                harness="omp",
+                harness_dir=Path(".omp"),
                 merge_mode="squash",
                 keep_worktrees=False,
             )
 
-            omp_flow.HarnessWorktreeFlow(config, runner).consolidate_skill_usage(
+            flow.HarnessWorktreeFlow(config, runner).consolidate_skill_usage(
                 feature,
                 integration,
                 repo,
@@ -229,18 +233,18 @@ class WrapperVariantTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
-            config = omp_flow.FlowConfig(
+            config = flow.FlowConfig(
                 repo=repo,
                 plan=repo / "plan.md",
                 base="main",
                 model=None,
-                harness=omp_flow.DEFAULT_HARNESS,
-                harness_dir=omp_flow.HARNESS_DIR,
+                harness="omp",
+                harness_dir=Path(".omp"),
                 merge_mode="squash",
                 keep_worktrees=False,
             )
 
-            subject = omp_flow.HarnessWorktreeFlow(config, FakeRunner())
+            subject = flow.HarnessWorktreeFlow(config, FakeRunner())
 
             self.assertTrue(subject.only_skill_usage_unmerged([".codex/skill-usage.json"]))
 

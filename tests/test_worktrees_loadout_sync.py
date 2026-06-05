@@ -11,8 +11,6 @@ LOADOUT_SCRIPTS = ROOT / "loadouts" / "worktrees" / ".harness" / "scripts"
 
 SCRIPT_PAIRS = (
     "worktree-flow.py",
-    "worktree-flow-codex.py",
-    "worktree-flow-omp.py",
     "skill-usage-manager.py",
 )
 
