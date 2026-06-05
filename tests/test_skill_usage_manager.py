@@ -11,7 +11,7 @@ from unittest import mock
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".codex" / "scripts" / "skill-usage-manager.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / ".omp" / "scripts" / "skill-usage-manager.py"
 SPEC = importlib.util.spec_from_file_location("skill_usage_manager", SCRIPT_PATH)
 manager = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

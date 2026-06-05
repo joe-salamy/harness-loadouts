@@ -20,11 +20,11 @@ Loadout management system for AI coding harness projects. A loadout is a reusabl
 
 ## Skill Usage Logging
 
-- When loading any skill, record the load with `.codex/scripts/skill-usage-manager.py`.
-- Use `python .codex/scripts/skill-usage-manager.py record <skill-name> --scope user --path <skills-dir>` for user skills.
-- Use `python .codex/scripts/skill-usage-manager.py record <skill-name> --scope repo --path <skills-dir> --repo <repo-root>` for repo skills.
+- When loading any skill, record the load with `.omp/scripts/skill-usage-manager.py`.
+- Use `python .omp/scripts/skill-usage-manager.py record <skill-name> --scope user --path <skills-dir>` for user skills.
+- Use `python .omp/scripts/skill-usage-manager.py record <skill-name> --scope repo --path <skills-dir> --repo <repo-root>` for repo skills.
 
 ## Harness Scripts
 
-- Keep canonical Codex tooling scripts in `.codex/scripts/`.
-- When changing any script in `.codex/scripts/`, copy the same change to the exported opencode loadout copy in `loadouts/worktrees/.opencode/scripts/`.
+- Keep canonical Oh My Pi tooling scripts in `.omp/scripts/`.
+- When changing any script in `.omp/scripts/`, copy the same change to the exported opencode loadout copy in `loadouts/worktrees/.opencode/scripts/`.

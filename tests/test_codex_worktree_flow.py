@@ -11,7 +11,7 @@ from unittest import mock
 from pathlib import Path
 
 
-SCRIPT_DIR = Path(__file__).resolve().parents[1] / ".codex" / "scripts"
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / ".omp" / "scripts"
 
 
 def load_flow_module(name: str, script_name: str):

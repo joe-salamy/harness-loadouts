@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVE_SCRIPTS = ROOT / ".codex" / "scripts"
+ACTIVE_SCRIPTS = ROOT / ".omp" / "scripts"
 LOADOUT_SCRIPTS = ROOT / "loadouts" / "worktrees" / ".harness" / "scripts"
 
 

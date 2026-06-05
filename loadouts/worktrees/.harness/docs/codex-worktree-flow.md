@@ -21,7 +21,7 @@ Create and approve a plan, save it as Markdown, then run the matching harness co
 Codex:
 
 ```powershell
-python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md
+python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md
 ```
 
 Oh My Pi:
@@ -34,16 +34,16 @@ Common options:
 
 ```powershell
 # Show Git/<harness> commands without running them
-python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --dry-run
+python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --dry-run
 
 # Implement and audit, but stop before merging
-python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --merge-mode stop
+python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --merge-mode stop
 
 # Keep feature/integration worktrees after completion
-python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --keep-worktrees
+python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --keep-worktrees
 
 # Use a non-main base branch
-python .\.codex\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --base develop
+python .\.omp\scripts\worktree-flow-codex.py --plan docs\plans\my-plan.md --base develop
 ```
 
 ## Required Skills
