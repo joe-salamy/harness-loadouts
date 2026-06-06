@@ -5,17 +5,58 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
 EMPTY_SKILL_USAGE_LEDGER = {"version": 1, "scopes": {}}
+MAX_LOG_OUTPUT_CHARS = 20_000
+
+
+def decode_subprocess_output(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return str(value)
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="milliseconds")
+
+
+def truncate_log_text(text: str) -> dict[str, object]:
+    original_chars = len(text)
+    return {
+        "text": text[:MAX_LOG_OUTPUT_CHARS],
+        "truncated": original_chars > MAX_LOG_OUTPUT_CHARS,
+        "original_chars": original_chars,
+    }
+
+
+def logged_command(args: Sequence[str]) -> list[str]:
+    command = list(args)
+    if command and command[-1] == "-":
+        command.pop()
+    return command
+
+
+def positive_seconds(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return parsed
 
 
 def infer_default_harness_dir(script_path: Path | None = None) -> Path:
@@ -47,11 +88,18 @@ class CommandResult:
     returncode: int
     stdout: str = ""
     stderr: str = ""
+    started_at: str = ""
+    finished_at: str = ""
+    duration_ms: int | None = None
+    timed_out: bool = False
 
 
 class CommandRunner:
-    def __init__(self, dry_run: bool = False) -> None:
+    def __init__(
+        self, dry_run: bool = False, command_timeout_seconds: float | None = None
+    ) -> None:
         self.dry_run = dry_run
+        self.command_timeout_seconds = command_timeout_seconds
 
     def run(
         self,
@@ -64,8 +112,17 @@ class CommandRunner:
     ) -> CommandResult:
         display = " ".join(args)
         print(f"+ ({cwd}) {display}")
+        started_at = now_iso()
+        start = time.perf_counter()
         if self.dry_run:
-            return CommandResult(tuple(args), cwd, 0)
+            return CommandResult(
+                tuple(args),
+                cwd,
+                0,
+                started_at=started_at,
+                finished_at=now_iso(),
+                duration_ms=0,
+            )
 
         executable = shutil.which(args[0])
         if executable is None:
@@ -79,7 +136,23 @@ class CommandRunner:
                 capture_output=capture,
                 text=True,
                 input=input_text,
+                timeout=self.command_timeout_seconds,
             )
+        except subprocess.TimeoutExpired as exc:
+            result = CommandResult(
+                tuple(args),
+                cwd,
+                -9,
+                decode_subprocess_output(exc.stdout),
+                decode_subprocess_output(exc.stderr),
+                started_at=started_at,
+                finished_at=now_iso(),
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                timed_out=True,
+            )
+            if check:
+                raise FlowError(format_command_failure(result)) from exc
+            return result
         except OSError as exc:
             raise FlowError(
                 f"Failed to run command: {display}\ncwd: {cwd}\n{exc}"
@@ -90,6 +163,9 @@ class CommandRunner:
             completed.returncode,
             completed.stdout or "",
             completed.stderr or "",
+            started_at=started_at,
+            finished_at=now_iso(),
+            duration_ms=int((time.perf_counter() - start) * 1000),
         )
         if check and result.returncode != 0:
             raise FlowError(format_command_failure(result))
@@ -97,8 +173,13 @@ class CommandRunner:
 
 
 def format_command_failure(result: CommandResult) -> str:
+    status = (
+        f"Command timed out: {' '.join(result.args)}"
+        if result.timed_out
+        else f"Command failed with exit code {result.returncode}: {' '.join(result.args)}"
+    )
     parts = [
-        f"Command failed with exit code {result.returncode}: {' '.join(result.args)}",
+        status,
         f"cwd: {result.cwd}",
     ]
     if result.stdout.strip():
@@ -163,6 +244,8 @@ class FlowConfig:
     harness_dir: Path
     merge_mode: str
     keep_worktrees: bool
+
+    command_timeout_seconds: float | None = None
 
 
 class HarnessWorktreeFlow:
@@ -358,19 +441,24 @@ Write `{summary.as_posix()}` before finishing.
             "harness_exec_start",
             cwd=str(cwd),
             output_file=str(output_file),
-            command=args[:-1],
+            command=logged_command(args),
         )
         result = self.runner.run(args, cwd, check=False, input_text=prompt)
-        self.log_event(
+        output_fields = {
+            "output_file": str(output_file),
+            "output_file_exists": output_file.exists(),
+        }
+        self.log_command_result(
             "harness_exec_finish",
-            cwd=str(cwd),
-            output_file=str(output_file),
-            output_file_exists=output_file.exists(),
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            result,
+            **output_fields,
         )
-        if result.returncode != 0:
+        if result.returncode != 0 or result.timed_out:
+            self.log_command_result(
+                "harness_exec_failure",
+                result,
+                **output_fields,
+            )
             raise FlowError(format_command_failure(result))
 
     def finish(self, repo: Path, names: Names, plan_path: Path, title: str) -> None:
@@ -425,6 +513,12 @@ Write `{summary.as_posix()}` before finishing.
                             integration_worktree, names, integration_plan
                         )
                     elif not unmerged:
+                        self.log_command_result(
+                            "command_failure",
+                            merge,
+                            phase="finish",
+                            step="squash_merge",
+                        )
                         raise FlowError(format_command_failure(merge))
             else:
                 merge = self.runner.run(
@@ -444,6 +538,12 @@ Write `{summary.as_posix()}` before finishing.
                             integration_worktree, names, integration_plan
                         )
                     elif not unmerged:
+                        self.log_command_result(
+                            "command_failure",
+                            merge,
+                            phase="finish",
+                            step="no_ff_merge",
+                        )
                         raise FlowError(format_command_failure(merge))
 
             if not skill_usage_restored:
@@ -460,7 +560,19 @@ Write `{summary.as_posix()}` before finishing.
                 repo, integration_worktree, names.run_id, "integration"
             )
             self.runner.run(["git", "switch", self.config.base], repo)
-            self.runner.run(["git", "merge", "--ff-only", integration_branch], repo)
+            fast_forward = self.runner.run(
+                ["git", "merge", "--ff-only", integration_branch],
+                repo,
+                check=False,
+            )
+            if fast_forward.returncode != 0:
+                self.log_command_result(
+                    "command_failure",
+                    fast_forward,
+                    phase="finish",
+                    step="fast_forward_merge",
+                )
+                raise FlowError(format_command_failure(fast_forward))
             integrated = True
         finally:
             if integrated and not self.config.keep_worktrees:
@@ -1011,6 +1123,23 @@ foreach ($item in $items) {
         with self.log_file.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+    def log_command_result(
+        self, event: str, result: CommandResult, **fields: object
+    ) -> None:
+        self.log_event(
+            event,
+            cwd=str(result.cwd),
+            command=logged_command(result.args),
+            returncode=result.returncode,
+            timed_out=result.timed_out,
+            started_at=result.started_at,
+            finished_at=result.finished_at,
+            duration_ms=result.duration_ms,
+            stdout=truncate_log_text(result.stdout),
+            stderr=truncate_log_text(result.stderr),
+            **fields,
+        )
+
     def require_file(self, path: Path) -> None:
         if not path.exists() and not self.runner.dry_run:
             raise FlowError(f"Required output file was not created: {path}")
@@ -1058,6 +1187,11 @@ def build_parser(
         help="Do not remove feature/integration worktrees.",
     )
     parser.add_argument(
+        "--command-timeout-seconds",
+        type=positive_seconds,
+        help="Optional timeout for each subprocess command.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Print commands without running them."
     )
     return parser
@@ -1080,13 +1214,20 @@ def main(
         plan=Path(args.plan).expanduser().resolve(),
         base=args.base,
         harness=args.harness,
+        command_timeout_seconds=args.command_timeout_seconds,
         harness_dir=harness_dir,
         model=args.model,
         merge_mode=args.merge_mode,
         keep_worktrees=args.keep_worktrees,
     )
     try:
-        HarnessWorktreeFlow(config, CommandRunner(args.dry_run)).run()
+        HarnessWorktreeFlow(
+            config,
+            CommandRunner(
+                args.dry_run,
+                command_timeout_seconds=config.command_timeout_seconds,
+            ),
+        ).run()
     except FlowError as exc:
         print(str(exc), file=sys.stderr)
         return 1

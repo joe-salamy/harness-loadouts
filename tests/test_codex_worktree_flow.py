@@ -80,6 +80,40 @@ class FailingSquashMergeRunner(FakeRunner):
         return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
 
 
+class FailingHarnessExecRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        stdout: str,
+        stderr: str,
+        returncode: int = 42,
+        timed_out: bool = False,
+    ) -> None:
+        super().__init__()
+        self.stdout_text = stdout
+        self.stderr_text = stderr
+        self.returncode = returncode
+        self.timed_out = timed_out
+
+    def run(self, args, cwd, *, check=True, capture=True, input_text=None):
+        key = tuple(args)
+        if key[:2] == ("codex", "exec"):
+            self.calls.append((key, Path(cwd), check))
+            self.inputs.append(input_text)
+            return flow.CommandResult(
+                key,
+                Path(cwd),
+                self.returncode,
+                self.stdout_text,
+                self.stderr_text,
+                started_at="start",
+                finished_at="finish",
+                duration_ms=123,
+                timed_out=self.timed_out,
+            )
+        return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
+
+
 class CommandRunnerTests(unittest.TestCase):
     def test_run_resolves_executable_before_invoking_subprocess(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -103,6 +137,76 @@ class CommandRunnerTests(unittest.TestCase):
         )
         self.assertEqual(result.args, ("codex", "exec", "--help"))
         self.assertEqual(result.stdout, "ok")
+
+
+    def test_run_records_duration_fields_on_success(self) -> None:
+        completed = subprocess.CompletedProcess(
+            ["C:/bin/codex.CMD", "exec", "--help"],
+            0,
+            "ok",
+            "",
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD"),
+            mock.patch.object(flow.subprocess, "run", return_value=completed) as run,
+            mock.patch.object(flow, "now_iso", side_effect=["start", "finish"]),
+            mock.patch.object(flow.time, "perf_counter", side_effect=[10.0, 10.25]),
+        ):
+            result = flow.CommandRunner().run(["codex", "exec", "--help"], Path(temp))
+
+        self.assertEqual(result.started_at, "start")
+        self.assertEqual(result.finished_at, "finish")
+        self.assertEqual(result.duration_ms, 250)
+        self.assertFalse(result.timed_out)
+        self.assertIsNone(run.call_args.kwargs["timeout"])
+
+    def test_run_marks_timeout_when_check_disabled(self) -> None:
+        expired = subprocess.TimeoutExpired(
+            ["C:/bin/codex.CMD", "exec", "--help"],
+            2.5,
+            output=b"partial stdout",
+            stderr=b"partial stderr",
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD"),
+            mock.patch.object(flow.subprocess, "run", side_effect=expired) as run,
+            mock.patch.object(flow, "now_iso", side_effect=["start", "finish"]),
+            mock.patch.object(flow.time, "perf_counter", side_effect=[4.0, 6.5]),
+        ):
+            result = flow.CommandRunner(command_timeout_seconds=2.5).run(
+                ["codex", "exec", "--help"],
+                Path(temp),
+                check=False,
+            )
+
+        self.assertTrue(result.timed_out)
+        self.assertEqual(result.returncode, -9)
+        self.assertEqual(result.stdout, "partial stdout")
+        self.assertEqual(result.stderr, "partial stderr")
+        self.assertEqual(result.started_at, "start")
+        self.assertEqual(result.finished_at, "finish")
+        self.assertEqual(result.duration_ms, 2500)
+        self.assertEqual(run.call_args.kwargs["timeout"], 2.5)
+
+    def test_run_raises_clear_flow_error_on_checked_timeout(self) -> None:
+        expired = subprocess.TimeoutExpired(
+            ["C:/bin/codex.CMD", "exec", "--help"],
+            1.0,
+            output="partial stdout",
+            stderr="partial stderr",
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD"),
+            mock.patch.object(flow.subprocess, "run", side_effect=expired),
+            self.assertRaisesRegex(flow.FlowError, "Command timed out: codex exec --help"),
+        ):
+            flow.CommandRunner(command_timeout_seconds=1.0).run(
+                ["codex", "exec", "--help"],
+                Path(temp),
+            )
 
     def test_run_reports_missing_executable_as_flow_error(self) -> None:
         with (
@@ -1021,6 +1125,92 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertNotIn("Secret prompt", records[1]["command"])
             self.assertFalse(records[2]["output_file_exists"])
             self.assertEqual(records[2]["returncode"], 0)
+            self.assertIn("duration_ms", records[2])
+            self.assertIn("timed_out", records[2])
+            self.assertIn("started_at", records[2])
+            self.assertIn("finished_at", records[2])
+            self.assertEqual(
+                records[2]["stdout"],
+                {"text": "", "truncated": False, "original_chars": 0},
+            )
+            self.assertEqual(
+                records[2]["stderr"],
+                {"text": "", "truncated": False, "original_chars": 0},
+            )
+
+    def test_failing_harness_exec_logs_failure_without_prompt_and_bounds_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            repo.mkdir()
+            worktree.mkdir()
+            output_file = worktree / ".codex" / "handoff" / "implementation-final-response.md"
+            stdout = "x" * (flow.MAX_LOG_OUTPUT_CHARS + 5)
+            runner = FailingHarnessExecRunner(stdout=stdout, stderr="failed")
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            subject.start_log(repo, "plan-run")
+            with self.assertRaisesRegex(flow.FlowError, "exit code 42"):
+                subject.harness_exec(worktree, "Secret prompt", output_file)
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                [record["event"] for record in records],
+                [
+                    "workflow_log_started",
+                    "harness_exec_start",
+                    "harness_exec_finish",
+                    "harness_exec_failure",
+                ],
+            )
+            failure = records[3]
+            self.assertNotIn("Secret prompt", json.dumps(records, ensure_ascii=False))
+            self.assertNotIn("-", failure["command"])
+            self.assertEqual(failure["returncode"], 42)
+            self.assertFalse(failure["timed_out"])
+            self.assertEqual(failure["duration_ms"], 123)
+            self.assertTrue(failure["stdout"]["truncated"])
+            self.assertEqual(failure["stdout"]["original_chars"], len(stdout))
+            self.assertEqual(len(failure["stdout"]["text"]), flow.MAX_LOG_OUTPUT_CHARS)
+            self.assertEqual(
+                failure["stderr"],
+                {"text": "failed", "truncated": False, "original_chars": 6},
+            )
+
+    def test_timed_out_harness_exec_logs_timeout_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-feature"
+            repo.mkdir()
+            worktree.mkdir()
+            output_file = worktree / ".codex" / "handoff" / "implementation-final-response.md"
+            runner = FailingHarnessExecRunner(
+                stdout="partial",
+                stderr="timeout",
+                returncode=-9,
+                timed_out=True,
+            )
+            subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
+
+            subject.start_log(repo, "plan-run")
+            with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
+                subject.harness_exec(worktree, "Secret prompt", output_file)
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failure = records[-1]
+            self.assertEqual(failure["event"], "harness_exec_failure")
+            self.assertTrue(failure["timed_out"])
+            self.assertEqual(failure["returncode"], -9)
+            self.assertEqual(failure["stdout"]["text"], "partial")
+            self.assertNotIn("Secret prompt", json.dumps(records, ensure_ascii=False))
 
     def test_stop_merge_mode_does_not_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1151,6 +1341,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
             subject.prepare_harness_permissions = lambda _path: None
             subject.require_ready_for_integration = lambda _worktree, _branch: None
+            subject.start_log(repo, "plan-run")
 
             with self.assertRaises(flow.FlowError):
                 subject.finish(
@@ -1159,6 +1350,17 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                     plan,
                     "Plan",
                 )
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failures = [
+                record for record in records if record["event"] == "command_failure"
+            ]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["step"], "fast_forward_merge")
 
     def test_non_conflict_squash_merge_failure_does_not_run_resolver(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1181,6 +1383,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             )
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
+            subject.start_log(repo, "plan-run")
             with self.assertRaisesRegex(flow.FlowError, "merge --squash"):
                 subject.finish(
                     repo,
@@ -1188,6 +1391,18 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                     plan,
                     "Plan",
                 )
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failures = [
+                record for record in records if record["event"] == "command_failure"
+            ]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["step"], "squash_merge")
+            self.assertEqual(failures[0]["returncode"], 1)
 
     def test_conflict_squash_merge_failure_runs_resolver(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1222,6 +1437,47 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
     def test_parser_rejects_removed_yes_option(self) -> None:
         with self.assertRaises(SystemExit):
             flow.build_parser().parse_args(["--plan", "plan.md", "--yes"])
+
+    def test_parser_accepts_command_timeout_seconds(self) -> None:
+        args = flow.build_parser().parse_args(
+            ["--plan", "plan.md", "--command-timeout-seconds", "2.5"]
+        )
+        self.assertEqual(args.command_timeout_seconds, 2.5)
+
+    def test_parser_rejects_non_finite_command_timeout_seconds(self) -> None:
+        with self.assertRaises(SystemExit):
+            flow.build_parser().parse_args(
+                ["--plan", "plan.md", "--command-timeout-seconds", "nan"]
+            )
+
+    def test_main_passes_command_timeout_seconds_to_runner(self) -> None:
+        created = {}
+
+        class FakeFlow:
+            def __init__(self, config, runner) -> None:
+                created["config"] = config
+                created["runner"] = runner
+
+            def run(self) -> None:
+                created["ran"] = True
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow, "HarnessWorktreeFlow", FakeFlow),
+        ):
+            result = flow.main(
+                [
+                    "--plan",
+                    str(Path(temp) / "plan.md"),
+                    "--command-timeout-seconds",
+                    "3.5",
+                ]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(created["ran"])
+        self.assertEqual(created["config"].command_timeout_seconds, 3.5)
+        self.assertEqual(created["runner"].command_timeout_seconds, 3.5)
 
     def test_local_git_worktree_and_squash_merge(self) -> None:
         if not shutil.which("git"):
