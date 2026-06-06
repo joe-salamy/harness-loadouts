@@ -65,15 +65,47 @@ class FailingFastForwardRunner(FakeRunner):
 
 
 class FailingSquashMergeRunner(FakeRunner):
-    def __init__(self, *, unmerged_paths: str) -> None:
+    def __init__(self, *, unmerged_paths: str, timed_out: bool = False) -> None:
         super().__init__()
         self.unmerged_paths = unmerged_paths
+        self.timed_out = timed_out
 
     def run(self, args, cwd, *, check=True, capture=True, input_text=None):
         key = tuple(args)
         if key[:3] == ("git", "merge", "--squash"):
             self.calls.append((key, Path(cwd), check))
-            return flow.CommandResult(key, Path(cwd), 1, "", "merge failed")
+            return flow.CommandResult(
+                key,
+                Path(cwd),
+                -9 if self.timed_out else 1,
+                "",
+                "merge timed out" if self.timed_out else "merge failed",
+                timed_out=self.timed_out,
+            )
+        if key == ("git", "diff", "--name-only", "--diff-filter=U"):
+            self.calls.append((key, Path(cwd), check))
+            return flow.CommandResult(key, Path(cwd), 0, self.unmerged_paths, "")
+        return super().run(args, cwd, check=check, capture=capture, input_text=input_text)
+
+
+class FailingNoFfMergeRunner(FakeRunner):
+    def __init__(self, *, unmerged_paths: str, timed_out: bool = False) -> None:
+        super().__init__()
+        self.unmerged_paths = unmerged_paths
+        self.timed_out = timed_out
+
+    def run(self, args, cwd, *, check=True, capture=True, input_text=None):
+        key = tuple(args)
+        if key[:4] == ("git", "merge", "--no-ff", "--no-commit"):
+            self.calls.append((key, Path(cwd), check))
+            return flow.CommandResult(
+                key,
+                Path(cwd),
+                -9 if self.timed_out else 1,
+                "",
+                "merge timed out" if self.timed_out else "merge failed",
+                timed_out=self.timed_out,
+            )
         if key == ("git", "diff", "--name-only", "--diff-filter=U"):
             self.calls.append((key, Path(cwd), check))
             return flow.CommandResult(key, Path(cwd), 0, self.unmerged_paths, "")
@@ -201,7 +233,9 @@ class CommandRunnerTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as temp,
             mock.patch.object(flow.shutil, "which", return_value="C:/bin/codex.CMD"),
             mock.patch.object(flow.subprocess, "run", side_effect=expired),
-            self.assertRaisesRegex(flow.FlowError, "Command timed out: codex exec --help"),
+            self.assertRaisesRegex(
+                flow.CommandFailureError, "Command timed out: codex exec --help"
+            ),
         ):
             flow.CommandRunner(command_timeout_seconds=1.0).run(
                 ["codex", "exec", "--help"],
@@ -1247,6 +1281,64 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
 
             subject.run()
 
+    def test_checked_command_failure_after_log_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            worktree = Path(temp) / "repo-plan"
+            plan = repo / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            worktree.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            result = flow.CommandResult(
+                ("git", "commit", "-m", "Harness: Plan"),
+                repo,
+                -9,
+                "partial",
+                "timeout",
+                started_at="start",
+                finished_at="finish",
+                duration_ms=1000,
+                timed_out=True,
+            )
+            runner = FakeRunner()
+            subject = flow.HarnessWorktreeFlow(self.config(repo, plan), runner)
+            subject.create_feature_worktree = lambda _repo, _names: None
+            subject.ensure_plan_in_worktree = lambda *_args: plan
+            subject.snapshot_skill_usage_baseline = lambda *_args: None
+            subject.run_implementation = lambda *_args: None
+            subject.require_file = lambda _path: None
+            subject.require_no_tracked_handoff_artifacts = lambda *_args: None
+            subject.require_implementation_invariants = lambda *_args: None
+            subject.head_rev = lambda _worktree: "before"
+            subject.run_audit = lambda *_args: None
+            subject.require_audit_invariants = lambda *_args: None
+            subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.require_ready_for_integration = lambda *_args: None
+            subject.unique_feature_names = lambda _repo, _slug: flow.Names(
+                "plan", "feature/plan", worktree, "plan-run"
+            )
+            subject.validate = lambda _repo, _plan: None
+            subject.finish = lambda *_args: (_ for _ in ()).throw(
+                flow.CommandFailureError(result)
+            )
+
+            with self.assertRaisesRegex(flow.CommandFailureError, "Command timed out"):
+                subject.run()
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failures = [
+                record for record in records if record["event"] == "command_failure"
+            ]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["phase"], "workflow")
+            self.assertEqual(failures[0]["step"], "checked_command")
+            self.assertTrue(failures[0]["timed_out"])
+
     def test_conflict_context_contains_files_and_rules(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
@@ -1403,6 +1495,92 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             self.assertEqual(len(failures), 1)
             self.assertEqual(failures[0]["step"], "squash_merge")
             self.assertEqual(failures[0]["returncode"], 1)
+
+    def test_timed_out_squash_merge_aborts_without_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            plan = feature / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            handoff = feature / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, plan),
+                FailingSquashMergeRunner(unmerged_paths="app.py\n", timed_out=True),
+            )
+            subject.prepare_harness_permissions = lambda _path: None
+            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("resolver should not run after a timeout")
+            )
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
+
+            subject.start_log(repo, "plan-run")
+            with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
+                subject.finish(
+                    repo,
+                    flow.Names("plan", "feature/plan", feature, "plan-run"),
+                    plan,
+                    "Plan",
+                )
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failures = [
+                record for record in records if record["event"] == "command_failure"
+            ]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["step"], "squash_merge")
+            self.assertTrue(failures[0]["timed_out"])
+
+    def test_timed_out_no_ff_merge_aborts_without_resolver(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-plan"
+            plan = feature / "docs" / "plans" / "plan.md"
+            repo.mkdir()
+            plan.parent.mkdir(parents=True)
+            plan.write_text("# Plan", encoding="utf-8")
+            handoff = feature / ".codex" / "handoff"
+            handoff.mkdir(parents=True)
+            (handoff / "implementation-summary.md").write_text("impl", encoding="utf-8")
+            (handoff / "audit-summary.md").write_text("audit", encoding="utf-8")
+            subject = flow.HarnessWorktreeFlow(
+                self.config(repo, plan, merge_mode="no-ff"),
+                FailingNoFfMergeRunner(unmerged_paths="app.py\n", timed_out=True),
+            )
+            subject.prepare_harness_permissions = lambda _path: None
+            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("resolver should not run after a timeout")
+            )
+            subject.require_ready_for_integration = lambda _worktree, _branch: None
+
+            subject.start_log(repo, "plan-run")
+            with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
+                subject.finish(
+                    repo,
+                    flow.Names("plan", "feature/plan", feature, "plan-run"),
+                    plan,
+                    "Plan",
+                )
+
+            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            records = [
+                json.loads(line)
+                for line in log_file.read_text(encoding="utf-8").splitlines()
+            ]
+            failures = [
+                record for record in records if record["event"] == "command_failure"
+            ]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["step"], "no_ff_merge")
+            self.assertTrue(failures[0]["timed_out"])
 
     def test_conflict_squash_merge_failure_runs_resolver(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

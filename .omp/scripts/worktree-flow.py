@@ -81,6 +81,14 @@ class FlowError(RuntimeError):
     """A recoverable workflow error with a user-facing message."""
 
 
+class CommandFailureError(FlowError):
+    """A command failure that carries the structured command result."""
+
+    def __init__(self, result: "CommandResult") -> None:
+        self.result = result
+        super().__init__(format_command_failure(result))
+
+
 @dataclass(frozen=True)
 class CommandResult:
     args: tuple[str, ...]
@@ -151,7 +159,7 @@ class CommandRunner:
                 timed_out=True,
             )
             if check:
-                raise FlowError(format_command_failure(result)) from exc
+                raise CommandFailureError(result) from exc
             return result
         except OSError as exc:
             raise FlowError(
@@ -168,7 +176,7 @@ class CommandRunner:
             duration_ms=int((time.perf_counter() - start) * 1000),
         )
         if check and result.returncode != 0:
-            raise FlowError(format_command_failure(result))
+            raise CommandFailureError(result)
         return result
 
 
@@ -274,34 +282,43 @@ class HarnessWorktreeFlow:
         print(f"Feature branch: {names.branch}")
         print(f"Feature worktree: {names.worktree}")
 
-        self.create_feature_worktree(repo, names)
-        plan_in_worktree = self.ensure_plan_in_worktree(
-            repo, plan, names.worktree, names.slug
-        )
-        self.snapshot_skill_usage_baseline(names.worktree, repo)
-        self.run_implementation(names.worktree, plan_in_worktree)
-        self.require_file(names.worktree / self.handoff_dir / "implementation-summary.md")
-        self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
-        self.require_implementation_invariants(names.worktree, names.branch)
-        audit_head_before = self.head_rev(names.worktree)
-        self.run_audit(names.worktree, plan_in_worktree)
-        self.require_file(names.worktree / self.handoff_dir / "audit-summary.md")
-        self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
-        self.require_audit_invariants(names.worktree, names.branch, audit_head_before)
-        archive_dir = self.archive_handoff(
-            repo, names.worktree, names.run_id, "feature"
-        )
-        print(f"Handoff archive: {archive_dir}")
+        try:
+            self.create_feature_worktree(repo, names)
+            plan_in_worktree = self.ensure_plan_in_worktree(
+                repo, plan, names.worktree, names.slug
+            )
+            self.snapshot_skill_usage_baseline(names.worktree, repo)
+            self.run_implementation(names.worktree, plan_in_worktree)
+            self.require_file(names.worktree / self.handoff_dir / "implementation-summary.md")
+            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
+            self.require_implementation_invariants(names.worktree, names.branch)
+            audit_head_before = self.head_rev(names.worktree)
+            self.run_audit(names.worktree, plan_in_worktree)
+            self.require_file(names.worktree / self.handoff_dir / "audit-summary.md")
+            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
+            self.require_audit_invariants(names.worktree, names.branch, audit_head_before)
+            archive_dir = self.archive_handoff(
+                repo, names.worktree, names.run_id, "feature"
+            )
+            print(f"Handoff archive: {archive_dir}")
 
-        if self.config.merge_mode == "stop":
-            print("Stopped before merge by request.")
-            print(f"Plan: {plan_in_worktree}")
-            print(f"Worktree: {names.worktree}")
-            print(f"Branch: {names.branch}")
-            return
+            if self.config.merge_mode == "stop":
+                print("Stopped before merge by request.")
+                print(f"Plan: {plan_in_worktree}")
+                print(f"Worktree: {names.worktree}")
+                print(f"Branch: {names.branch}")
+                return
 
-        self.require_ready_for_integration(names.worktree, names.branch)
-        self.finish(repo, names, plan_in_worktree, plan_title(plan))
+            self.require_ready_for_integration(names.worktree, names.branch)
+            self.finish(repo, names, plan_in_worktree, plan_title(plan))
+        except CommandFailureError as exc:
+            self.log_command_result(
+                "command_failure",
+                exc.result,
+                phase="workflow",
+                step="checked_command",
+            )
+            raise
 
     def validate(self, repo: Path, plan: Path) -> None:
         if not plan.exists():
@@ -502,6 +519,14 @@ Write `{summary.as_posix()}` before finishing.
                     check=False,
                 )
                 if merge.returncode != 0:
+                    if merge.timed_out:
+                        self.log_command_result(
+                            "command_failure",
+                            merge,
+                            phase="finish",
+                            step="squash_merge",
+                        )
+                        raise FlowError(format_command_failure(merge))
                     unmerged = self.unmerged_paths(integration_worktree)
                     if unmerged:
                         self.restore_integration_skill_usage_to_head(
@@ -527,6 +552,14 @@ Write `{summary.as_posix()}` before finishing.
                     check=False,
                 )
                 if merge.returncode != 0:
+                    if merge.timed_out:
+                        self.log_command_result(
+                            "command_failure",
+                            merge,
+                            phase="finish",
+                            step="no_ff_merge",
+                        )
+                        raise FlowError(format_command_failure(merge))
                     unmerged = self.unmerged_paths(integration_worktree)
                     if unmerged:
                         self.restore_integration_skill_usage_to_head(
