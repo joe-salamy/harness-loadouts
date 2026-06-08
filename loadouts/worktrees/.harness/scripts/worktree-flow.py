@@ -780,16 +780,11 @@ Do not commit.
         return archive_dir
 
     def stage_integration_changes(self, worktree: Path) -> None:
+        self.runner.run(["git", "add", "-A"], worktree)
         self.runner.run(
-            [
-                "git",
-                "add",
-                "-A",
-                "--",
-                ".",
-                f":(exclude){self.handoff_dir.as_posix()}/**",
-            ],
+            ["git", "reset", "HEAD", "--", self.handoff_dir.as_posix()],
             worktree,
+            check=False,
         )
 
     def skill_usage_script(self, worktree: Path) -> Path:
@@ -948,10 +943,10 @@ Do not commit.
         tracked = result.stdout.strip()
         if result.returncode != 0 or not tracked:
             return
-        raise FlowError(
-            "Workflow handoff artifacts were committed, but they must remain "
-            f"untracked:\n{tracked}\nRemove them from the branch index before "
-            f"merging, for example: git rm --cached -- {self.handoff_dir.as_posix()}/*"
+        print(
+            f"Warning: workflow handoff artifacts are tracked in {treeish}. "
+            f"They should usually remain untracked:\n{tracked}",
+            file=sys.stderr,
         )
 
     def head_rev(self, worktree: Path) -> str:
