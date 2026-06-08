@@ -83,7 +83,7 @@ if (status === ORDER_STATUS_SHIPPED) { ... }
 const result = await db.query(`SELECT * FROM users WHERE id = ${userId}`);
 
 // GOOD: parameterized query
-const result = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+const result = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
 ```
 
 ## Constraints

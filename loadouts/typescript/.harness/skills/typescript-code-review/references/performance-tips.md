@@ -7,6 +7,7 @@ Performance optimization strategies for TypeScript applications, covering runtim
 ### Memoization and Caching
 
 #### ✅ Memoize Expensive Computations
+
 ```typescript
 // Bad - recalculating on every call
 function fibonacci(n: number): number {
@@ -33,6 +34,7 @@ const fibonacci = createMemoizedFibonacci();
 ```
 
 #### ✅ Cache API Responses
+
 ```typescript
 // Bad - fetching every time
 async function getUser(id: string): Promise<User> {
@@ -70,6 +72,7 @@ class UserCache {
 ### Algorithm Optimization
 
 #### ✅ Use Appropriate Data Structures
+
 ```typescript
 // Bad - O(n) lookup with array
 const users: User[] = [...];
@@ -94,6 +97,7 @@ function isUserActive(id: string): boolean {
 ```
 
 #### ✅ Avoid Nested Loops
+
 ```typescript
 // Bad - O(n²) complexity
 function findCommonUsers(list1: User[], list2: User[]): User[] {
@@ -110,8 +114,8 @@ function findCommonUsers(list1: User[], list2: User[]): User[] {
 
 // Good - O(n) complexity using Set
 function findCommonUsers(list1: User[], list2: User[]): User[] {
-  const ids2 = new Set(list2.map(u => u.id));
-  return list1.filter(u => ids2.has(u.id));
+  const ids2 = new Set(list2.map((u) => u.id));
+  return list1.filter((u) => ids2.has(u.id));
 }
 ```
 
@@ -120,37 +124,39 @@ function findCommonUsers(list1: User[], list2: User[]): User[] {
 ### Array Operations
 
 #### ✅ Avoid Unnecessary Array Iterations
+
 ```typescript
 // Bad - multiple iterations
-const active = users.filter(u => u.isActive);
-const names = active.map(u => u.name);
+const active = users.filter((u) => u.isActive);
+const names = active.map((u) => u.name);
 const sorted = names.sort();
 
 // Good - single iteration
 const sorted = users
-  .filter(u => u.isActive)
-  .map(u => u.name)
+  .filter((u) => u.isActive)
+  .map((u) => u.name)
   .sort();
 
 // Better - early termination when possible
 function findFirstActiveUser(users: User[]): User | undefined {
-  return users.find(u => u.isActive); // Stops at first match
+  return users.find((u) => u.isActive); // Stops at first match
 }
 ```
 
 #### ✅ Use `for...of` for Early Termination
+
 ```typescript
 // Bad - processes entire array
-const hasActiveUser = users.some(u => u.isActive);
+const hasActiveUser = users.some((u) => u.isActive);
 
 // Good for single check
-const hasActiveUser = users.some(u => u.isActive);
+const hasActiveUser = users.some((u) => u.isActive);
 
 // Good for complex logic with early exit
 function validateUsers(users: User[]): boolean {
   for (const user of users) {
     if (user.age < 0) return false;
-    if (!user.email.includes('@')) return false;
+    if (!user.email.includes("@")) return false;
     if (user.name.length === 0) return false;
   }
   return true;
@@ -162,6 +168,7 @@ function validateUsers(users: User[]): boolean {
 ### Object Operations
 
 #### ✅ Destructure Only What You Need
+
 ```typescript
 // Bad - spreads entire large object
 function updateUser(user: LargeUserObject, updates: Partial<LargeUserObject>) {
@@ -180,6 +187,7 @@ function updateUser(user: User, updates: Partial<User>): User {
 ```
 
 #### ✅ Avoid Object.keys/values/entries When Not Needed
+
 ```typescript
 // Bad - creates intermediate array
 if (Object.keys(obj).length === 0) {
@@ -208,22 +216,23 @@ if (map.size === 0) {
 ### String Operations
 
 #### ✅ Use Template Literals Efficiently
+
 ```typescript
 // Bad - repeated concatenation
-let result = '';
+let result = "";
 for (const item of items) {
-  result += item.name + ', ';
+  result += item.name + ", ";
 }
 
 // Good - array join
-const result = items.map(item => item.name).join(', ');
+const result = items.map((item) => item.name).join(", ");
 
 // Good - for large strings, use array buffer
 const parts: string[] = [];
 for (const item of items) {
   parts.push(item.name);
 }
-const result = parts.join(', ');
+const result = parts.join(", ");
 ```
 
 ---
@@ -233,6 +242,7 @@ const result = parts.join(', ');
 ### Component Optimization
 
 #### ✅ Use React.memo for Expensive Components
+
 ```typescript
 // Bad - re-renders on every parent render
 function UserCard({ user }: { user: User }) {
@@ -254,6 +264,7 @@ const UserCard = React.memo(
 ```
 
 #### ✅ Optimize useEffect Dependencies
+
 ```typescript
 // Bad - recreates object on every render
 function UserProfile({ userId }: { userId: string }) {
@@ -279,6 +290,7 @@ function UserProfile({ userId }: { userId: string }) {
 ```
 
 #### ✅ Use useCallback for Event Handlers
+
 ```typescript
 // Bad - creates new function on every render
 function UserList({ users }: { users: User[] }) {
@@ -320,6 +332,7 @@ function UserList({ users }: { users: User[] }) {
 ```
 
 #### ✅ Use useMemo for Expensive Calculations
+
 ```typescript
 // Bad - recalculates on every render
 function Analytics({ data }: { data: DataPoint[] }) {
@@ -380,20 +393,22 @@ function UserList({ users }: { users: User[] }) {
 ### Tree Shaking
 
 #### ✅ Import Only What You Need
+
 ```typescript
 // Bad - imports entire library
-import _ from 'lodash';
+import _ from "lodash";
 const result = _.debounce(fn, 100);
 
 // Good - import specific function
-import debounce from 'lodash/debounce';
+import debounce from "lodash/debounce";
 const result = debounce(fn, 100);
 
 // Better - use ES modules
-import { debounce } from 'lodash-es';
+import { debounce } from "lodash-es";
 ```
 
 #### ✅ Use Dynamic Imports for Code Splitting
+
 ```typescript
 // Bad - loads everything upfront
 import { HeavyComponent } from './HeavyComponent';
@@ -426,15 +441,15 @@ async function processData(data: Data) {
 
 ```typescript
 // Bad - large dependency for simple task
-import moment from 'moment'; // ~300kb
-const formatted = moment(date).format('YYYY-MM-DD');
+import moment from "moment"; // ~300kb
+const formatted = moment(date).format("YYYY-MM-DD");
 
 // Good - use native Date API
-const formatted = new Intl.DateTimeFormat('en-CA').format(date);
+const formatted = new Intl.DateTimeFormat("en-CA").format(date);
 
 // Good - use smaller library
-import { format } from 'date-fns'; // ~70kb with tree-shaking
-const formatted = format(date, 'yyyy-MM-dd');
+import { format } from "date-fns"; // ~70kb with tree-shaking
+const formatted = format(date, "yyyy-MM-dd");
 ```
 
 ---
@@ -463,19 +478,14 @@ const formatted = format(date, 'yyyy-MM-dd');
   },
 
   // Exclude unnecessary files
-  "exclude": [
-    "node_modules",
-    "dist",
-    "build",
-    "**/*.spec.ts",
-    "**/*.test.ts"
-  ]
+  "exclude": ["node_modules", "dist", "build", "**/*.spec.ts", "**/*.test.ts"]
 }
 ```
 
 ### Type Calculation Performance
 
 #### ❌ Avoid Deeply Recursive Types
+
 ```typescript
 // Bad - very slow compilation
 type DeepPartial<T> = T extends object
@@ -488,20 +498,22 @@ type HugeDeepPartial = DeepPartial<VeryNestedType>; // Slow!
 type DeepPartial<T, Depth extends number = 5> = Depth extends 0
   ? T
   : T extends object
-  ? { [P in keyof T]?: DeepPartial<T[P], Prev[Depth]> }
-  : T;
+    ? { [P in keyof T]?: DeepPartial<T[P], Prev[Depth]> }
+    : T;
 
 type Prev = [never, 0, 1, 2, 3, 4, ...0[]];
 ```
 
 #### ✅ Use Simpler Type Utilities
+
 ```typescript
 // Bad - complex conditional type
-type ComplexType<T> = T extends Array<infer U>
-  ? U extends object
-    ? { [K in keyof U]: ComplexType<U[K]> }
-    : U
-  : T;
+type ComplexType<T> =
+  T extends Array<infer U>
+    ? U extends object
+      ? { [K in keyof U]: ComplexType<U[K]> }
+      : U
+    : T;
 
 // Good - simpler, faster type
 type SimplerType<T> = T extends Array<infer U> ? U : T;
@@ -514,6 +526,7 @@ type SimplerType<T> = T extends Array<infer U> ? U : T;
 ### Request Optimization
 
 #### ✅ Batch API Requests
+
 ```typescript
 // Bad - multiple sequential requests
 async function loadUserData(userId: string) {
@@ -541,6 +554,7 @@ async function loadUserData(userId: string) {
 ```
 
 #### ✅ Implement Request Deduplication
+
 ```typescript
 // Good - deduplicate concurrent requests
 class RequestCache {
@@ -563,32 +577,33 @@ class RequestCache {
 const cache = new RequestCache();
 
 // Multiple calls for same data only make one request
-const user1 = cache.fetch('user:1', () => fetchUser('1'));
-const user2 = cache.fetch('user:1', () => fetchUser('1')); // Reuses promise
+const user1 = cache.fetch("user:1", () => fetchUser("1"));
+const user2 = cache.fetch("user:1", () => fetchUser("1")); // Reuses promise
 ```
 
 #### ✅ Use HTTP/2 and Compression
+
 ```typescript
 // Good - enable compression
-import compression from 'compression';
+import compression from "compression";
 app.use(compression());
 
 // Good - set proper cache headers
-app.get('/api/users/:id', (req, res) => {
-  res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min cache
+app.get("/api/users/:id", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=300"); // 5 min cache
   res.json(user);
 });
 
 // Good - use ETags for conditional requests
-app.get('/api/users/:id', async (req, res) => {
+app.get("/api/users/:id", async (req, res) => {
   const user = await getUser(req.params.id);
   const etag = generateETag(user);
 
-  if (req.headers['if-none-match'] === etag) {
+  if (req.headers["if-none-match"] === etag) {
     return res.status(304).end();
   }
 
-  res.setHeader('ETag', etag);
+  res.setHeader("ETag", etag);
   res.json(user);
 });
 ```
@@ -600,6 +615,7 @@ app.get('/api/users/:id', async (req, res) => {
 ### Avoid Memory Leaks
 
 #### ✅ Clean Up Event Listeners
+
 ```typescript
 // Bad - memory leak
 function Component() {
@@ -624,6 +640,7 @@ function Component() {
 ```
 
 #### ✅ Clear Timers and Intervals
+
 ```typescript
 // Bad - timer leak
 function Component() {
@@ -651,6 +668,7 @@ function Component() {
 ```
 
 #### ✅ Unsubscribe from Observables
+
 ```typescript
 // Bad - subscription leak
 function Component() {
@@ -685,10 +703,7 @@ function Component() {
 
 ```typescript
 // Good - measure function performance
-function measurePerformance<T>(
-  name: string,
-  fn: () => T
-): T {
+function measurePerformance<T>(name: string, fn: () => T): T {
   const start = performance.now();
   const result = fn();
   const end = performance.now();
@@ -698,14 +713,14 @@ function measurePerformance<T>(
 }
 
 // Usage
-const result = measurePerformance('processData', () => {
+const result = measurePerformance("processData", () => {
   return processLargeDataset(data);
 });
 
 // Good - async version
 async function measureAsyncPerformance<T>(
   name: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
 ): Promise<T> {
   const start = performance.now();
   const result = await fn();
@@ -721,6 +736,7 @@ async function measureAsyncPerformance<T>(
 ## Performance Review Checklist
 
 ### Runtime Performance
+
 - [ ] No nested loops with O(n²) or worse complexity
 - [ ] Appropriate data structures (Map/Set instead of Array for lookups)
 - [ ] Memoization for expensive calculations
@@ -728,6 +744,7 @@ async function measureAsyncPerformance<T>(
 - [ ] Avoid unnecessary array iterations
 
 ### React/UI Performance
+
 - [ ] React.memo for components that re-render often
 - [ ] useMemo for expensive calculations
 - [ ] useCallback for event handlers passed to child components
@@ -735,6 +752,7 @@ async function measureAsyncPerformance<T>(
 - [ ] Lazy loading for heavy components
 
 ### Bundle Size
+
 - [ ] Tree-shaking enabled (ES modules)
 - [ ] Dynamic imports for code splitting
 - [ ] Import only needed functions from libraries
@@ -742,6 +760,7 @@ async function measureAsyncPerformance<T>(
 - [ ] Consider bundle size when adding new dependencies
 
 ### Network Performance
+
 - [ ] Parallel API requests where possible
 - [ ] Request deduplication
 - [ ] Proper HTTP caching headers
@@ -749,6 +768,7 @@ async function measureAsyncPerformance<T>(
 - [ ] Batch requests when feasible
 
 ### Memory Management
+
 - [ ] Event listeners cleaned up
 - [ ] Timers/intervals cleared
 - [ ] Observables unsubscribed
@@ -756,6 +776,7 @@ async function measureAsyncPerformance<T>(
 - [ ] WeakMap/WeakSet for object caching
 
 ### TypeScript Compilation
+
 - [ ] `incremental: true` in tsconfig.json
 - [ ] `skipLibCheck: true` for faster compilation
 - [ ] Exclude test files from compilation

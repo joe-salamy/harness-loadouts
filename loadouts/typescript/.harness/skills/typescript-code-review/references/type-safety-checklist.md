@@ -5,18 +5,19 @@ Comprehensive checklist for reviewing type safety in TypeScript code.
 ## Strict Mode Configuration
 
 ### Essential tsconfig.json Settings
+
 ```json
 {
   "compilerOptions": {
-    "strict": true,                              // Enables all strict checks
-    "noUncheckedIndexedAccess": true,           // Index signatures return T | undefined
-    "noImplicitOverride": true,                 // Require override keyword
+    "strict": true, // Enables all strict checks
+    "noUncheckedIndexedAccess": true, // Index signatures return T | undefined
+    "noImplicitOverride": true, // Require override keyword
     "noPropertyAccessFromIndexSignature": true, // Require bracket notation for index signatures
-    "exactOptionalPropertyTypes": true,         // Optional properties can't be set to undefined
-    "noFallthroughCasesInSwitch": true,        // Catch missing break statements
-    "noImplicitReturns": true,                  // All code paths must return a value
-    "noUnusedLocals": true,                     // Flag unused local variables
-    "noUnusedParameters": true                  // Flag unused function parameters
+    "exactOptionalPropertyTypes": true, // Optional properties can't be set to undefined
+    "noFallthroughCasesInSwitch": true, // Catch missing break statements
+    "noImplicitReturns": true, // All code paths must return a value
+    "noUnusedLocals": true, // Flag unused local variables
+    "noUnusedParameters": true // Flag unused function parameters
   }
 }
 ```
@@ -24,6 +25,7 @@ Comprehensive checklist for reviewing type safety in TypeScript code.
 ## Type Annotation Best Practices
 
 ### ✅ DO: Explicit Return Types
+
 ```typescript
 // Good - explicit return type
 function calculateTotal(items: Item[]): number {
@@ -37,6 +39,7 @@ function calculateTotal(items: Item[]) {
 ```
 
 ### ✅ DO: Avoid `any`
+
 ```typescript
 // Bad - loses type safety
 function processData(data: any): any {
@@ -45,13 +48,13 @@ function processData(data: any): any {
 
 // Good - use unknown for truly unknown types
 function processData(data: unknown): number {
-  if (typeof data === 'object' && data !== null && 'value' in data) {
+  if (typeof data === "object" && data !== null && "value" in data) {
     const obj = data as { value: unknown };
-    if (typeof obj.value === 'number') {
+    if (typeof obj.value === "number") {
       return obj.value * 2;
     }
   }
-  throw new Error('Invalid data');
+  throw new Error("Invalid data");
 }
 
 // Better - define the type
@@ -65,6 +68,7 @@ function processData(data: Data): number {
 ```
 
 ### ✅ DO: Use Type Guards
+
 ```typescript
 // Type guard for custom types
 interface Cat {
@@ -79,7 +83,7 @@ type Animal = Cat | Dog;
 
 // Type predicate
 function isCat(animal: Animal): animal is Cat {
-  return 'meow' in animal;
+  return "meow" in animal;
 }
 
 function makeSound(animal: Animal): void {
@@ -92,17 +96,18 @@ function makeSound(animal: Animal): void {
 ```
 
 ### ✅ DO: Exhaustiveness Checking
+
 ```typescript
-type Status = 'pending' | 'approved' | 'rejected';
+type Status = "pending" | "approved" | "rejected";
 
 function handleStatus(status: Status): string {
   switch (status) {
-    case 'pending':
-      return 'Processing...';
-    case 'approved':
-      return 'Approved!';
-    case 'rejected':
-      return 'Rejected!';
+    case "pending":
+      return "Processing...";
+    case "approved":
+      return "Approved!";
+    case "rejected":
+      return "Rejected!";
     default:
       // This will error if a new status is added but not handled
       const exhaustiveCheck: never = status;
@@ -114,6 +119,7 @@ function handleStatus(status: Status): string {
 ## Null and Undefined Handling
 
 ### ✅ DO: Optional Chaining
+
 ```typescript
 // Good - safe navigation
 const street = user?.address?.street;
@@ -123,29 +129,32 @@ const street = user && user.address && user.address.street;
 ```
 
 ### ✅ DO: Nullish Coalescing
+
 ```typescript
 // Good - only replaces null/undefined
-const displayName = user.name ?? 'Guest';
+const displayName = user.name ?? "Guest";
 
 // Avoid - also replaces empty string, 0, false
-const displayName = user.name || 'Guest';
+const displayName = user.name || "Guest";
 ```
 
 ### ✅ DO: Non-Null Assertion Sparingly
+
 ```typescript
 // Avoid unless absolutely certain
-const element = document.getElementById('myId')!;
+const element = document.getElementById("myId")!;
 
 // Better - handle the null case
-const element = document.getElementById('myId');
+const element = document.getElementById("myId");
 if (!element) {
-  throw new Error('Element not found');
+  throw new Error("Element not found");
 }
 ```
 
 ## Generic Types
 
 ### ✅ DO: Constrain Generics
+
 ```typescript
 // Bad - too permissive
 function getProperty<T>(obj: T, key: string) {
@@ -155,13 +164,14 @@ function getProperty<T>(obj: T, key: string) {
 // Good - constrain to objects with string keys
 function getProperty<T extends Record<string, unknown>, K extends keyof T>(
   obj: T,
-  key: K
+  key: K,
 ): T[K] {
   return obj[key];
 }
 ```
 
 ### ✅ DO: Use Generic Defaults
+
 ```typescript
 interface ApiResponse<T = unknown> {
   data: T;
@@ -169,30 +179,31 @@ interface ApiResponse<T = unknown> {
 }
 
 // Can be used without specifying type
-const response: ApiResponse = await fetch('/api/data');
+const response: ApiResponse = await fetch("/api/data");
 
 // Or with specific type
-const response: ApiResponse<User> = await fetch('/api/user');
+const response: ApiResponse<User> = await fetch("/api/user");
 ```
 
 ## Union and Intersection Types
 
 ### ✅ DO: Discriminated Unions
+
 ```typescript
 interface Success {
-  type: 'success';
+  type: "success";
   data: string;
 }
 
 interface Error {
-  type: 'error';
+  type: "error";
   message: string;
 }
 
 type Result = Success | Error;
 
 function handleResult(result: Result): void {
-  if (result.type === 'success') {
+  if (result.type === "success") {
     console.log(result.data); // TypeScript knows this is Success
   } else {
     console.log(result.message); // TypeScript knows this is Error
@@ -201,6 +212,7 @@ function handleResult(result: Result): void {
 ```
 
 ### ✅ DO: Intersection Types for Mixins
+
 ```typescript
 interface Timestamped {
   createdAt: Date;
@@ -215,8 +227,8 @@ interface User {
 type TimestampedUser = User & Timestamped;
 
 const user: TimestampedUser = {
-  id: '1',
-  name: 'Alice',
+  id: "1",
+  name: "Alice",
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -225,6 +237,7 @@ const user: TimestampedUser = {
 ## Array and Tuple Types
 
 ### ✅ DO: Proper Array Typing
+
 ```typescript
 // Bad - implicit any[]
 const numbers = [];
@@ -237,6 +250,7 @@ const numbers: Array<number> = [];
 ```
 
 ### ✅ DO: Use Tuples for Fixed-Length Arrays
+
 ```typescript
 // Good - tuple with specific types
 type Point = [number, number];
@@ -250,6 +264,7 @@ function distance(p1: Point, p2: Point): number {
 ```
 
 ### ✅ DO: Handle Array Indices Safely
+
 ```typescript
 // With noUncheckedIndexedAccess: true
 const numbers: number[] = [1, 2, 3];
@@ -267,6 +282,7 @@ console.log(numbers[0]?.toFixed(2));
 ## Object Types
 
 ### ✅ DO: Use Interfaces for Object Shapes
+
 ```typescript
 // Good - interface for object structure
 interface User {
@@ -276,10 +292,11 @@ interface User {
 }
 
 // Good - type alias for unions/intersections
-type UserOrGuest = User | { id: 'guest'; name: 'Guest' };
+type UserOrGuest = User | { id: "guest"; name: "Guest" };
 ```
 
 ### ✅ DO: Index Signatures with Caution
+
 ```typescript
 // Avoid - too loose
 interface Config {
@@ -299,6 +316,7 @@ interface Config {
 ```
 
 ### ✅ DO: Use Utility Types
+
 ```typescript
 interface User {
   id: string;
@@ -308,10 +326,10 @@ interface User {
 }
 
 // Pick only needed properties
-type UserProfile = Pick<User, 'id' | 'name' | 'email'>;
+type UserProfile = Pick<User, "id" | "name" | "email">;
 
 // Omit sensitive properties
-type PublicUser = Omit<User, 'password'>;
+type PublicUser = Omit<User, "password">;
 
 // Make all properties optional
 type PartialUser = Partial<User>;
@@ -326,6 +344,7 @@ type ImmutableUser = Readonly<User>;
 ## Function Types
 
 ### ✅ DO: Proper Function Signatures
+
 ```typescript
 // Good - explicit parameter and return types
 function greet(name: string): string {
@@ -341,6 +360,7 @@ const greet: GreetFunction = (name) => `Hello, ${name}`;
 ```
 
 ### ✅ DO: Optional and Default Parameters
+
 ```typescript
 // Optional parameters
 function greet(name: string, title?: string): string {
@@ -348,12 +368,13 @@ function greet(name: string, title?: string): string {
 }
 
 // Default parameters (type inferred from default value)
-function greet(name: string, title = 'Mr.'): string {
+function greet(name: string, title = "Mr."): string {
   return `Hello, ${title} ${name}`;
 }
 ```
 
 ### ✅ DO: Rest Parameters
+
 ```typescript
 function sum(...numbers: number[]): number {
   return numbers.reduce((acc, n) => acc + n, 0);
@@ -368,6 +389,7 @@ function createUser(name: string, ...roles: string[]): User {
 ## Async/Promise Types
 
 ### ✅ DO: Type Async Functions Properly
+
 ```typescript
 // Good - explicit return type
 async function fetchUser(id: string): Promise<User> {
@@ -380,7 +402,7 @@ async function fetchUser(id: string): Promise<User> {
   try {
     const response = await fetch(`/api/users/${id}`);
     if (!response.ok) {
-      throw new Error('Failed to fetch user');
+      throw new Error("Failed to fetch user");
     }
     return response.json();
   } catch (error) {
@@ -396,6 +418,7 @@ async function fetchUser(id: string): Promise<User> {
 ## Class Types
 
 ### ✅ DO: Use Access Modifiers
+
 ```typescript
 class User {
   // Public by default
@@ -429,18 +452,19 @@ class User {
 ```
 
 ### ✅ DO: Use Abstract Classes
+
 ```typescript
 abstract class Animal {
   abstract makeSound(): void;
 
   move(): void {
-    console.log('Moving...');
+    console.log("Moving...");
   }
 }
 
 class Cat extends Animal {
   makeSound(): void {
-    console.log('Meow');
+    console.log("Meow");
   }
 }
 ```
@@ -448,32 +472,34 @@ class Cat extends Animal {
 ## Type Assertions
 
 ### ⚠️ AVOID: Unnecessary Type Assertions
+
 ```typescript
 // Bad - unnecessary assertion
 const user = getUser() as User;
 
 // Good - assertion only when necessary
-const element = document.getElementById('myId') as HTMLInputElement;
+const element = document.getElementById("myId") as HTMLInputElement;
 
 // Better - use type guards
 if (element instanceof HTMLInputElement) {
-  element.value = 'text';
+  element.value = "text";
 }
 ```
 
 ### ✅ DO: Use `satisfies` Operator (TS 4.9+)
+
 ```typescript
 // Bad - loses literal types
 const config: Record<string, string> = {
-  apiUrl: 'https://api.example.com',
-  timeout: '5000',
+  apiUrl: "https://api.example.com",
+  timeout: "5000",
 };
 // config.apiUrl has type string, not the literal
 
 // Good - preserves literal types while validating structure
 const config = {
-  apiUrl: 'https://api.example.com',
-  timeout: '5000',
+  apiUrl: "https://api.example.com",
+  timeout: "5000",
 } satisfies Record<string, string>;
 // config.apiUrl has type 'https://api.example.com'
 ```
@@ -481,23 +507,25 @@ const config = {
 ## Literal Types
 
 ### ✅ DO: Use Const Assertions
+
 ```typescript
 // Without const assertion
-const colors = ['red', 'green', 'blue']; // Type: string[]
+const colors = ["red", "green", "blue"]; // Type: string[]
 
 // With const assertion
-const colors = ['red', 'green', 'blue'] as const; // Type: readonly ["red", "green", "blue"]
+const colors = ["red", "green", "blue"] as const; // Type: readonly ["red", "green", "blue"]
 
 // Use in type definitions
-type Color = typeof colors[number]; // Type: "red" | "green" | "blue"
+type Color = (typeof colors)[number]; // Type: "red" | "green" | "blue"
 ```
 
 ## Template Literal Types
 
 ### ✅ DO: Use Template Literal Types (TS 4.1+)
+
 ```typescript
-type Vertical = 'top' | 'middle' | 'bottom';
-type Horizontal = 'left' | 'center' | 'right';
+type Vertical = "top" | "middle" | "bottom";
+type Horizontal = "left" | "center" | "right";
 
 // Combine with template literals
 type Position = `${Vertical}-${Horizontal}`;
@@ -507,9 +535,11 @@ type Position = `${Vertical}-${Horizontal}`;
 ## Common Type Safety Issues
 
 ### ❌ Implicit Any
+
 ```typescript
 // Bad
-function process(data) { // Implicit any
+function process(data) {
+  // Implicit any
   return data.value;
 }
 
@@ -520,29 +550,31 @@ function process(data: { value: number }): number {
 ```
 
 ### ❌ Type Widening
+
 ```typescript
 // Bad - type widened to string
-let status = 'pending';
-status = 'approved'; // OK, but loses specificity
+let status = "pending";
+status = "approved"; // OK, but loses specificity
 
 // Good - explicit literal type
-let status: 'pending' | 'approved' | 'rejected' = 'pending';
+let status: "pending" | "approved" | "rejected" = "pending";
 
 // Good - const assertion
-const status = 'pending' as const; // Type: 'pending'
+const status = "pending" as const; // Type: 'pending'
 ```
 
 ### ❌ Unsafe Type Coercion
+
 ```typescript
 // Bad - unsafe conversion
 const value: number = someValue as number;
 
 // Good - validate before converting
 function toNumber(value: unknown): number {
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return value;
   }
-  throw new Error('Value is not a number');
+  throw new Error("Value is not a number");
 }
 ```
 

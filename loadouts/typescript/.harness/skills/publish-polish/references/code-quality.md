@@ -9,6 +9,7 @@ Code-level checks to run during the polish step. These focus on the source code 
 ### Check for Existing Config
 
 Look for formatter/linter configuration in:
+
 - `eslint.config.js` / `eslint.config.mjs` (flat config) or `.eslintrc.*` (legacy)
 - `.prettierrc` / `.prettierrc.*` / `prettier.config.*`
 - `package.json` → `"eslintConfig"` or `"prettier"` fields
@@ -17,6 +18,7 @@ Look for formatter/linter configuration in:
 ### If Configured
 
 Run the configured tools:
+
 ```bash
 npx eslint .
 npx prettier --check .
@@ -27,18 +29,19 @@ Report any violations as **Recommendation** items.
 ### If Not Configured
 
 Note the absence as a **Recommendation**: suggest adding ESLint with TypeScript support and Prettier:
+
 ```bash
 npm install -D eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin prettier
 ```
 
 With a minimal `eslint.config.mjs`:
-```javascript
-import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
-  tseslint.configs.recommended,
-  { ignores: ['dist/', 'node_modules/', 'coverage/'] }
-);
+```javascript
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(tseslint.configs.recommended, {
+  ignores: ["dist/", "node_modules/", "coverage/"],
+});
 ```
 
 Do not block on this — many personal projects ship without a linter configured.
@@ -50,6 +53,7 @@ Do not block on this — many personal projects ship without a linter configured
 ### What to Check
 
 Focus on **public API** — exported functions, classes, types, and interfaces that users of the project would interact with:
+
 - Exported function/method documentation
 - Exported class documentation
 - Exported type/interface documentation (complex ones benefit from docs)
@@ -64,6 +68,7 @@ grep -n "^export " src/**/*.ts | head -30
 ```
 
 Or if ESLint with `eslint-plugin-jsdoc` is available:
+
 ```bash
 npx eslint --rule '{"jsdoc/require-jsdoc": "warn"}' src/
 ```
@@ -84,6 +89,7 @@ If docs exist, check they follow a consistent style (TSDoc `@param`/`@returns` t
 ### What to Check
 
 Verify `tsconfig.json` has strict mode enabled:
+
 ```json
 {
   "compilerOptions": {
@@ -140,6 +146,7 @@ grep -rnI --include="*.ts" --include="*.tsx" --include="*.js" -E '\b(TODO|FIXME|
 ### Existence Check
 
 Look for test files:
+
 ```bash
 # Common test locations and patterns
 ls -d __tests__/ tests/ test/ 2>/dev/null
@@ -149,6 +156,7 @@ find . -name "*.test.ts" -o -name "*.spec.ts" -o -name "*.test.tsx" -o -name "*.
 ### If Tests Exist
 
 Run them if possible:
+
 ```bash
 npx jest --passWithNoTests 2>&1 | tail -20
 # or
@@ -156,11 +164,13 @@ npx vitest run 2>&1 | tail -20
 ```
 
 Check `package.json` for a `test` script and use that if available:
+
 ```bash
 npm test 2>&1 | tail -20
 ```
 
 Report:
+
 - All passing: note in checklist as pass
 - Failures: **Recommendation** to fix before publishing
 - If test runner not installed: note as skip, recommend adding to devDependencies
@@ -172,6 +182,7 @@ Report as **Recommendation** — having some tests improves credibility but is n
 ### Coverage (Optional)
 
 If coverage is configured:
+
 ```bash
 npx jest --coverage 2>&1 | tail -20
 # or

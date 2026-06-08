@@ -9,6 +9,7 @@ Code-level checks to run during the polish step. These focus on the source code 
 ### Check for Existing Config
 
 Look for formatter/linter configuration in:
+
 - `pyproject.toml` → `[tool.ruff]`, `[tool.black]`, `[tool.isort]`
 - `ruff.toml` or `.ruff.toml`
 - `setup.cfg` → `[flake8]`, `[isort]`
@@ -16,6 +17,7 @@ Look for formatter/linter configuration in:
 ### If Configured
 
 Run the configured tools:
+
 ```bash
 ruff check .          # or: flake8 .
 ruff format --check . # or: black --check .
@@ -26,6 +28,7 @@ Report any violations as **Recommendation** items.
 ### If Not Configured
 
 Note the absence as a **Recommendation**: suggest adding `[tool.ruff]` to `pyproject.toml` with a minimal config:
+
 ```toml
 [tool.ruff]
 target-version = "py311"  # match project's minimum Python
@@ -44,6 +47,7 @@ Do not block on this — many personal projects ship without a formatter configu
 ### What to Check
 
 Focus on **public API** — functions, classes, and modules that users of the project would interact with:
+
 - Module-level docstrings in `__init__.py` and main entry points
 - Public class docstrings (classes without leading `_`)
 - Public function/method docstrings (functions without leading `_`)
@@ -58,6 +62,7 @@ grep -n "class [A-Z]" *.py **/*.py | grep -v "class _"
 ```
 
 Or if ruff is available:
+
 ```bash
 ruff check --select D --ignore D100,D104 .  # pydocstyle rules
 ```
@@ -78,6 +83,7 @@ If docstrings exist, check they follow a consistent style (Google, NumPy, or Sph
 ### What to Check
 
 Focus on **public function signatures**:
+
 - Parameter types
 - Return types
 - No need to check internal variable annotations
@@ -90,6 +96,7 @@ grep -n "def [a-z][a-zA-Z_]*(" **/*.py | grep -v "def _" | grep -v " -> "
 ```
 
 Or if mypy is configured:
+
 ```bash
 mypy . --ignore-missing-imports
 ```
@@ -130,6 +137,7 @@ grep -rnI --include="*.py" -E '\b(TODO|FIXME|HACK|XXX|NOCOMMIT|TEMP)\b' .
 ### Existence Check
 
 Look for test files:
+
 ```bash
 # Common test locations
 ls -d tests/ test/ 2>/dev/null
@@ -139,11 +147,13 @@ find . -name "test_*.py" -o -name "*_test.py" | grep -v venv | grep -v __pycache
 ### If Tests Exist
 
 Run them if possible:
+
 ```bash
 python -m pytest --tb=short -q 2>&1 | tail -20
 ```
 
 Report:
+
 - All passing: note in checklist as pass
 - Failures: **Recommendation** to fix before publishing
 - If pytest not installed: note as skip, recommend adding to dev dependencies
@@ -155,6 +165,7 @@ Report as **Recommendation** — having some tests improves credibility but is n
 ### Coverage (Optional)
 
 If `pytest-cov` is available:
+
 ```bash
 python -m pytest --cov=. --cov-report=term-missing -q 2>&1 | tail -10
 ```

@@ -25,7 +25,9 @@ HARNESS_DIR = Path(Path(__file__).resolve().parent.parent.name)
 if not HARNESS_DIR.name.startswith("."):
     HARNESS_DIR = Path(".harness")
 LEGACY_HARNESS_DIRS = (".codex", ".opencode", ".claude", ".omp", ".agents")
-KNOWN_HARNESS_DIRS = tuple(dict.fromkeys((HARNESS_DIR.as_posix(), ".harness", *LEGACY_HARNESS_DIRS)))
+KNOWN_HARNESS_DIRS = tuple(
+    dict.fromkeys((HARNESS_DIR.as_posix(), ".harness", *LEGACY_HARNESS_DIRS))
+)
 REPO_SKILL_DIRS = tuple(f"{harness_dir}/skills" for harness_dir in KNOWN_HARNESS_DIRS)
 DEFAULT_THRESHOLD = 100
 DEFAULT_MIN_ACTIVE = 8
@@ -202,7 +204,9 @@ def discover_roots(args: argparse.Namespace, scopes: Iterable[str]) -> list[Skil
             candidates = [(repo_root / rel).resolve() for rel in REPO_SKILL_DIRS]
             if args.include_loadout_templates:
                 for harness_dir in KNOWN_HARNESS_DIRS:
-                    candidates.extend((repo_root / "loadouts").glob(f"*/{harness_dir}/skills"))
+                    candidates.extend(
+                        (repo_root / "loadouts").glob(f"*/{harness_dir}/skills")
+                    )
 
         for candidate in candidates:
             if candidate.exists():
@@ -332,11 +336,19 @@ def merge_skill_metadata(
         )
     merged["load_count"] = load_count
 
-    first_seen = [value for value in (existing.get("first_seen"), incoming.get("first_seen")) if value]
+    first_seen = [
+        value
+        for value in (existing.get("first_seen"), incoming.get("first_seen"))
+        if value
+    ]
     if first_seen:
         merged["first_seen"] = min(str(value) for value in first_seen)
 
-    last_seen = [value for value in (existing.get("last_seen"), incoming.get("last_seen")) if value]
+    last_seen = [
+        value
+        for value in (existing.get("last_seen"), incoming.get("last_seen"))
+        if value
+    ]
     if last_seen:
         merged["last_seen"] = max(str(value) for value in last_seen)
 
@@ -452,7 +464,9 @@ def target_pins_for_scope(
 
 def consolidate(args: argparse.Namespace) -> int:
     source_repo = Path(args.source_repo).expanduser().resolve()
-    target_worktree = Path(args.target_worktree or args.target_repo).expanduser().resolve()
+    target_worktree = (
+        Path(args.target_worktree or args.target_repo).expanduser().resolve()
+    )
     target_repo = Path(args.target_repo).expanduser().resolve()
     source_data = normalize_ledger_for_consolidation(
         load_json(Path(args.source_ledger)), source_repo, target_repo
@@ -480,7 +494,9 @@ def consolidate(args: argparse.Namespace) -> int:
             if delta <= 0:
                 continue
 
-            target_scope["total_loads"] = int(target_scope.get("total_loads", 0)) + delta
+            target_scope["total_loads"] = (
+                int(target_scope.get("total_loads", 0)) + delta
+            )
             existing = target_skills.get(skill_name, {})
             new_count = int(existing.get("load_count", 0)) + delta
             merged = merge_skill_metadata(existing, source_entry, load_count=new_count)

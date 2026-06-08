@@ -6,19 +6,19 @@ Use this template when producing the final publish-polish readiness report.
 
 ## Severity Definitions
 
-| Severity       | Definition                                                                  |
-| -------------- | --------------------------------------------------------------------------- |
-| Blocker        | Prevents safe publication. Must fix before making repo public.              |
-| Recommendation | Significantly improves quality or first impressions. Should fix.            |
-| Optional       | Polish for mature open-source projects. Nice to have.                       |
+| Severity       | Definition                                                       |
+| -------------- | ---------------------------------------------------------------- |
+| Blocker        | Prevents safe publication. Must fix before making repo public.   |
+| Recommendation | Significantly improves quality or first impressions. Should fix. |
+| Optional       | Polish for mature open-source projects. Nice to have.            |
 
 ## Verdict Decision Matrix
 
-| Condition                                           | Verdict        |
-| --------------------------------------------------- | -------------- |
-| Zero blockers AND two or fewer recommendations      | **Ready**      |
-| Zero blockers AND three or more recommendations     | **Almost Ready** |
-| Any blockers                                        | **Needs Work** |
+| Condition                                       | Verdict          |
+| ----------------------------------------------- | ---------------- |
+| Zero blockers AND two or fewer recommendations  | **Ready**        |
+| Zero blockers AND three or more recommendations | **Almost Ready** |
+| Any blockers                                    | **Needs Work**   |
 
 ---
 
@@ -63,31 +63,31 @@ Use this template when producing the final publish-polish readiness report.
 
 ## Checklist Summary
 
-| #  | Category             | Check                        | Status | Notes               |
-| -- | -------------------- | ---------------------------- | ------ | ------------------- |
-| 1  | Security & Privacy   | .gitignore completeness      | pass   |                     |
-| 2  | Security & Privacy   | No tracked secret files      | pass   |                     |
-| 3  | Security & Privacy   | No secrets in source         | pass   |                     |
-| 4  | Security & Privacy   | No secrets in git history    | pass   |                     |
-| 5  | Security & Privacy   | No hardcoded personal paths  | pass   |                     |
-| 6  | Security & Privacy   | No personal information      | pass   |                     |
-| 7  | License              | LICENSE file exists           | pass   |                     |
-| 8  | License              | License in package metadata  | skip   | No pyproject.toml   |
-| 9  | Code Quality         | Formatting & linting         | pass   |                     |
-| 10 | Code Quality         | Docstrings on public API     | fail   | 3 functions missing |
-| 11 | Code Quality         | Type hints on public API     | pass   |                     |
-| 12 | Code Quality         | TODO/FIXME/HACK audit        | pass   |                     |
-| 13 | Code Quality         | Tests exist and pass         | fail   | No tests found      |
-| 14 | Code Quality         | No secrets in source         | pass   |                     |
-| 15 | Documentation        | README exists                | pass   |                     |
-| 16 | Documentation        | README required sections     | fail   | Missing: usage      |
-| 17 | Documentation        | README freshness             | pass   |                     |
-| 18 | Dependencies         | Dependency file exists       | pass   |                     |
-| 19 | Dependencies         | Dependencies match imports   | pass   |                     |
-| 20 | Dependencies         | Python version constraint    | fail   | Not declared        |
-| 21 | Dependencies         | Dev deps separated           | skip   | Single requirements |
-| 22 | Repo Hygiene         | No large binary files        | pass   |                     |
-| 23 | Repo Hygiene         | No generated files committed | pass   |                     |
+| #   | Category           | Check                        | Status | Notes               |
+| --- | ------------------ | ---------------------------- | ------ | ------------------- |
+| 1   | Security & Privacy | .gitignore completeness      | pass   |                     |
+| 2   | Security & Privacy | No tracked secret files      | pass   |                     |
+| 3   | Security & Privacy | No secrets in source         | pass   |                     |
+| 4   | Security & Privacy | No secrets in git history    | pass   |                     |
+| 5   | Security & Privacy | No hardcoded personal paths  | pass   |                     |
+| 6   | Security & Privacy | No personal information      | pass   |                     |
+| 7   | License            | LICENSE file exists          | pass   |                     |
+| 8   | License            | License in package metadata  | skip   | No pyproject.toml   |
+| 9   | Code Quality       | Formatting & linting         | pass   |                     |
+| 10  | Code Quality       | Docstrings on public API     | fail   | 3 functions missing |
+| 11  | Code Quality       | Type hints on public API     | pass   |                     |
+| 12  | Code Quality       | TODO/FIXME/HACK audit        | pass   |                     |
+| 13  | Code Quality       | Tests exist and pass         | fail   | No tests found      |
+| 14  | Code Quality       | No secrets in source         | pass   |                     |
+| 15  | Documentation      | README exists                | pass   |                     |
+| 16  | Documentation      | README required sections     | fail   | Missing: usage      |
+| 17  | Documentation      | README freshness             | pass   |                     |
+| 18  | Dependencies       | Dependency file exists       | pass   |                     |
+| 19  | Dependencies       | Dependencies match imports   | pass   |                     |
+| 20  | Dependencies       | Python version constraint    | fail   | Not declared        |
+| 21  | Dependencies       | Dev deps separated           | skip   | Single requirements |
+| 22  | Repo Hygiene       | No large binary files        | pass   |                     |
+| 23  | Repo Hygiene       | No generated files committed | pass   |                     |
 
 **Status values:** pass, fail, skip (not applicable), warn (needs manual review)
 ```

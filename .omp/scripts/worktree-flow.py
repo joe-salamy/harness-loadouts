@@ -289,14 +289,18 @@ class HarnessWorktreeFlow:
             )
             self.snapshot_skill_usage_baseline(names.worktree, repo)
             self.run_implementation(names.worktree, plan_in_worktree)
-            self.require_file(names.worktree / self.handoff_dir / "implementation-summary.md")
+            self.require_file(
+                names.worktree / self.handoff_dir / "implementation-summary.md"
+            )
             self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
             self.require_implementation_invariants(names.worktree, names.branch)
             audit_head_before = self.head_rev(names.worktree)
             self.run_audit(names.worktree, plan_in_worktree)
             self.require_file(names.worktree / self.handoff_dir / "audit-summary.md")
             self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
-            self.require_audit_invariants(names.worktree, names.branch, audit_head_before)
+            self.require_audit_invariants(
+                names.worktree, names.branch, audit_head_before
+            )
             archive_dir = self.archive_handoff(
                 repo, names.worktree, names.run_id, "feature"
             )
@@ -507,7 +511,9 @@ Write `{summary.as_posix()}` before finishing.
         integration_plan = self.copy_integration_context(
             names.worktree, integration_worktree, plan_path
         )
-        feature_baseline = integration_worktree / self.handoff_dir / "skill-usage-baseline.json"
+        feature_baseline = (
+            integration_worktree / self.handoff_dir / "skill-usage-baseline.json"
+        )
 
         integrated = False
         try:
@@ -614,7 +620,9 @@ Write `{summary.as_posix()}` before finishing.
     def resolve_conflict(
         self, integration_worktree: Path, names: Names, plan_path: Path
     ) -> None:
-        context_path = integration_worktree / self.handoff_dir / "merge-conflict-context.md"
+        context_path = (
+            integration_worktree / self.handoff_dir / "merge-conflict-context.md"
+        )
         self.write_text(
             context_path, self.conflict_context(integration_worktree, names, plan_path)
         )
@@ -696,7 +704,15 @@ Do not commit.
         return worktree / self.harness_dir / "scripts" / "skill-usage-manager.py"
 
     def skill_usage_ledger(self, repo_root: Path) -> Path:
-        for harness_dir in (self.harness_dir.as_posix(), ".harness", ".codex", ".opencode", ".claude", ".omp", ".agents"):
+        for harness_dir in (
+            self.harness_dir.as_posix(),
+            ".harness",
+            ".codex",
+            ".opencode",
+            ".claude",
+            ".omp",
+            ".agents",
+        ):
             candidate = repo_root / harness_dir
             if candidate.exists():
                 return candidate / "skill-usage.json"
@@ -749,7 +765,9 @@ Do not commit.
             == 0
         )
         if exists_at_head:
-            self.runner.run(["git", "checkout", "HEAD", "--", rel], integration_worktree)
+            self.runner.run(
+                ["git", "checkout", "HEAD", "--", rel], integration_worktree
+            )
         else:
             self.runner.run(
                 ["git", "rm", "-f", "--ignore-unmatch", "--", rel],
@@ -772,9 +790,7 @@ Do not commit.
                 str(self.skill_usage_script(integration_worktree)),
                 "consolidate",
                 "--source-ledger",
-                str(
-                    self.skill_usage_ledger_in_worktree(source_worktree, target_repo)
-                ),
+                str(self.skill_usage_ledger_in_worktree(source_worktree, target_repo)),
                 "--base-ledger",
                 str(baseline_path),
                 "--target-ledger",
@@ -817,7 +833,9 @@ Do not commit.
                 ".agents",
             )
         }
-        return bool(paths) and all(path.replace("\\", "/") in expected for path in paths)
+        return bool(paths) and all(
+            path.replace("\\", "/") in expected for path in paths
+        )
 
     def require_no_tracked_handoff_artifacts(
         self, worktree: Path, treeish: str
@@ -1130,7 +1148,9 @@ foreach ($item in $items) {
             )
             if worktree.exists():
                 if worktree.resolve() == repo_root:
-                    raise FlowError("Refusing to remove repository root during cleanup.")
+                    raise FlowError(
+                        "Refusing to remove repository root during cleanup."
+                    )
                 shutil.rmtree(worktree)
         self.runner.run(["git", "worktree", "prune"], repo, check=False)
         self.runner.run(["git", "branch", "-d", integration_branch], repo, check=False)
@@ -1141,7 +1161,9 @@ foreach ($item in $items) {
     def start_log(self, repo: Path, run_id: str) -> None:
         if self.runner.dry_run:
             return
-        self.log_file = repo / self.harness_dir / "worktree-flow" / run_id / "workflow.jsonl"
+        self.log_file = (
+            repo / self.harness_dir / "worktree-flow" / run_id / "workflow.jsonl"
+        )
         ensure_dir(self.log_file.parent)
         self.log_event("workflow_log_started", log_file=str(self.log_file))
 

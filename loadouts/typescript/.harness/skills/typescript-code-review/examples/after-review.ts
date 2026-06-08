@@ -8,16 +8,16 @@ interface DataInput {
 
 function isValidDataInput(data: unknown): data is DataInput {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'value' in data &&
-    typeof (data as DataInput).value === 'number'
+    "value" in data &&
+    typeof (data as DataInput).value === "number"
   );
 }
 
 export function processData(data: unknown): number {
   if (!isValidDataInput(data)) {
-    throw new Error('Invalid data input');
+    throw new Error("Invalid data input");
   }
   return data.value * 2;
 }
@@ -33,26 +33,26 @@ export function calculateTotal(items: Item[]): number {
 
 // Fix 3: Proper null/undefined handling with optional chaining
 export function getUserName(user: User | undefined): string {
-  return user?.name.toUpperCase() ?? 'Unknown';
+  return user?.name.toUpperCase() ?? "Unknown";
 }
 
 // Fix 4: Optimized algorithm using Set (O(n) instead of O(n²))
 export function findCommonItems(list1: string[], list2: string[]): string[] {
   const set2 = new Set(list2);
-  return list1.filter(item => set2.has(item));
+  return list1.filter((item) => set2.has(item));
 }
 
 // Fix 5: Use union type instead of enum (no runtime code)
-export type UserRole = 'admin' | 'user' | 'guest';
+export type UserRole = "admin" | "user" | "guest";
 
 // Or if you need both types and values:
 export const UserRole = {
-  Admin: 'admin',
-  User: 'user',
-  Guest: 'guest',
+  Admin: "admin",
+  User: "user",
+  Guest: "guest",
 } as const;
 
-export type UserRoleType = typeof UserRole[keyof typeof UserRole];
+export type UserRoleType = (typeof UserRole)[keyof typeof UserRole];
 
 // Fix 6: Immutable operations (create new array)
 export function addItem(items: readonly string[], newItem: string): string[] {
@@ -61,11 +61,11 @@ export function addItem(items: readonly string[], newItem: string): string[] {
 
 // Fix 7: Discriminated union with type property
 export type ApiResponse =
-  | { type: 'success'; data: string }
-  | { type: 'error'; error: string };
+  | { type: "success"; data: string }
+  | { type: "error"; error: string };
 
 export function handleResponse(response: ApiResponse): string {
-  if (response.type === 'success') {
+  if (response.type === "success") {
     return response.data;
   }
   throw new Error(response.error);
@@ -83,7 +83,7 @@ export async function fetchUser(id: string): Promise<User> {
     return response.json();
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Error fetching user:', error.message);
+      console.error("Error fetching user:", error.message);
     }
     throw error;
   }
@@ -128,7 +128,7 @@ export function getRequiredElement(id: string): HTMLInputElement {
 
 // Fix 11: Use const assertion for literal types
 export const CONFIG = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 } as const;
 
@@ -141,12 +141,12 @@ const API_KEY = process.env.API_KEY;
 
 export function callApi(endpoint: string): Promise<Response> {
   if (!API_KEY) {
-    throw new Error('API_KEY environment variable is not set');
+    throw new Error("API_KEY environment variable is not set");
   }
 
   return fetch(`https://api.example.com${endpoint}`, {
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${API_KEY}`,
     },
   });
 }
@@ -154,17 +154,17 @@ export function callApi(endpoint: string): Promise<Response> {
 // Fix 13: Use parameterized queries to prevent SQL injection
 export function getUserByEmail(email: string): Promise<User | null> {
   // Using parameterized query
-  return db.query('SELECT * FROM users WHERE email = $1', [email]);
+  return db.query("SELECT * FROM users WHERE email = $1", [email]);
 }
 
 // Fix 14: Sanitize HTML to prevent XSS
-import DOMPurify from 'dompurify';
+import DOMPurify from "dompurify";
 
 export function displayComment(comment: string): void {
-  const element = document.getElementById('comment');
+  const element = document.getElementById("comment");
 
   if (!element) {
-    throw new Error('Comment element not found');
+    throw new Error("Comment element not found");
   }
 
   // Safe: use textContent for plain text
@@ -206,7 +206,7 @@ export interface User {
   createdAt: Date;
 }
 
-export type PublicUser = Omit<User, 'password'>;
+export type PublicUser = Omit<User, "password">;
 
 export function getPublicUser(user: User): PublicUser {
   const { password, ...publicUser } = user;
@@ -233,7 +233,7 @@ export function getFirstItem(items: string[]): string {
   const first = items[0];
 
   if (first === undefined) {
-    throw new Error('Array is empty');
+    throw new Error("Array is empty");
   }
 
   return first.toUpperCase();
@@ -253,14 +253,14 @@ export function removePassword(user: User): PublicUser {
 // Fix 20: Cleanup event listeners to prevent memory leaks
 export function setupListener(): () => void {
   const handleResize = () => {
-    console.log('Window resized');
+    console.log("Window resized");
   };
 
-  window.addEventListener('resize', handleResize);
+  window.addEventListener("resize", handleResize);
 
   // Return cleanup function
   return () => {
-    window.removeEventListener('resize', handleResize);
+    window.removeEventListener("resize", handleResize);
   };
 }
 
@@ -283,15 +283,15 @@ export interface Config {
 
 // Use satisfies operator (TypeScript 4.9+) to validate types while preserving literals
 export const routes = {
-  home: '/',
-  about: '/about',
-  contact: '/contact',
+  home: "/",
+  about: "/about",
+  contact: "/contact",
 } satisfies Record<string, string>;
 // routes.home has type '/' not string
 
 // Use branded types for stronger type safety
-type UserId = string & { readonly __brand: 'UserId' };
-type PostId = string & { readonly __brand: 'PostId' };
+type UserId = string & { readonly __brand: "UserId" };
+type PostId = string & { readonly __brand: "PostId" };
 
 function createUserId(id: string): UserId {
   return id as UserId;
@@ -299,7 +299,7 @@ function createUserId(id: string): UserId {
 
 function getUserById(id: UserId): Promise<User> {
   // This function only accepts UserId, not plain string
-  return db.query('SELECT * FROM users WHERE id = $1', [id]);
+  return db.query("SELECT * FROM users WHERE id = $1", [id]);
 }
 
 // Use unknown instead of any for truly unknown types
@@ -312,7 +312,7 @@ export function getUser(json: string): User {
   const data = parseJson(json);
 
   if (!isUser(data)) {
-    throw new Error('Invalid user data');
+    throw new Error("Invalid user data");
   }
 
   return data;
@@ -320,14 +320,14 @@ export function getUser(json: string): User {
 
 function isUser(data: unknown): data is User {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'id' in data &&
-    'name' in data &&
-    'email' in data &&
-    typeof (data as User).id === 'string' &&
-    typeof (data as User).name === 'string' &&
-    typeof (data as User).email === 'string'
+    "id" in data &&
+    "name" in data &&
+    "email" in data &&
+    typeof (data as User).id === "string" &&
+    typeof (data as User).name === "string" &&
+    typeof (data as User).email === "string"
   );
 }
 

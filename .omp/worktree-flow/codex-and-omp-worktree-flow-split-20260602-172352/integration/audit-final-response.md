@@ -9,6 +9,7 @@ Audit complete.
 Issue found and fixed: the live `save-plan` skill still referenced `worktree-flow.py --plan`. I updated both the canonical and loadout skill text to reference `worktree-flow-codex.py --plan` and `worktree-flow-omp.py --plan`.
 
 Audit files changed and committed:
+
 - `.codex/skill-usage.json`
 - `.codex/skills/save-plan/SKILL.md`
 - `loadouts/worktrees/.harness/skills/save-plan/SKILL.md`
@@ -16,6 +17,7 @@ Audit files changed and committed:
 Commit created: `47a19779591f92591f44199493d081903fb0be4c` (`Fix audit findings`)
 
 Checks run:
+
 - `python -m unittest tests.test_codex_worktree_flow` passed, 40 tests.
 - `python -m py_compile ...` for both canonical/loadout workflow scripts passed.
 - `worktree-flow-codex.py --help` and `worktree-flow-omp.py --help` passed with correct defaults.

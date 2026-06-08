@@ -8,8 +8,8 @@
 BAD: "This is confusing"
 
 GOOD: "This function handles both validation and persistence. Consider
-      splitting into `validateUser()` and `saveUser()` for single
-      responsibility and easier testing."
+splitting into `validateUser()` and `saveUser()` for single
+responsibility and easier testing."
 ```
 
 ### Be Actionable, Not Just Critical
@@ -18,7 +18,7 @@ GOOD: "This function handles both validation and persistence. Consider
 BAD: "Fix the query"
 
 GOOD: "This will cause N+1 queries - one per post. Use `include: [Author]`
-      to eager load authors in a single query. See: [link to docs]"
+to eager load authors in a single query. See: [link to docs]"
 ```
 
 ### Be Constructive, Not Demanding
@@ -27,7 +27,7 @@ GOOD: "This will cause N+1 queries - one per post. Use `include: [Author]`
 BAD: "Add tests"
 
 GOOD: "Missing test for the case when `email` is already taken. Add a test
-      that verifies 409 is returned with appropriate error message."
+that verifies 409 is returned with appropriate error message."
 ```
 
 ### Ask Questions, Don't Assume
@@ -36,7 +36,7 @@ GOOD: "Missing test for the case when `email` is already taken. Add a test
 BAD: "This is wrong"
 
 GOOD: "I notice this returns null instead of throwing. Is that intentional?
-      The other methods throw on not-found. Should this be consistent?"
+The other methods throw on not-found. Should this be consistent?"
 ```
 
 ## Praise Examples
@@ -72,24 +72,28 @@ This is vulnerable to SQL injection. Use parameterized query:
 
 ### Major (Should Fix)
 
-```markdown
+````markdown
 **[MAJOR] Performance: N+1 Query**
 Location: `src/posts/service.ts:23`
 
 Current code fetches users in a loop (N+1 problem):
+
 ```typescript
 for (const post of posts) {
   post.author = await User.findById(post.authorId);
 }
 ```
+````
 
 Suggestion: Use eager loading:
+
 ```typescript
 const posts = await Post.findAll({ include: [User] });
 ```
 
 Impact: ~100 extra DB queries per request with current approach.
-```
+
+````
 
 ### Minor (Nice to Have)
 
@@ -103,7 +107,7 @@ Location: `src/utils/date.ts:12`
 Location: `src/config/index.ts:8`
 
 `let config` is never reassigned. Use `const` for immutability.
-```
+````
 
 ## Question Format
 
@@ -113,6 +117,7 @@ Location: `src/orders/service.ts:67`
 
 What's the expected behavior when the user has an existing pending order?
 Should this:
+
 - Return the existing order?
 - Create a new one anyway?
 - Return an error?
@@ -135,10 +140,10 @@ suggestions are performance improvements worth considering.
 
 ## Quick Reference
 
-| Feedback Type | Tone | Required Action |
-|---------------|------|-----------------|
-| Critical | Firm, clear | Must fix before merge |
-| Major | Suggestive | Should fix |
-| Minor | Optional | Nice to have |
-| Praise | Positive | None - reinforcement |
-| Question | Curious | Response needed |
+| Feedback Type | Tone        | Required Action       |
+| ------------- | ----------- | --------------------- |
+| Critical      | Firm, clear | Must fix before merge |
+| Major         | Suggestive  | Should fix            |
+| Minor         | Optional    | Nice to have          |
+| Praise        | Positive    | None - reinforcement  |
+| Question      | Curious     | Response needed       |

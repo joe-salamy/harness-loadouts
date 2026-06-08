@@ -15,11 +15,13 @@ The codebase shows a functional implementation but has several critical type saf
 ## Critical Issues 🔴
 
 ### 1. SQL Injection Vulnerability
+
 **File**: `src/database/users.ts:45`
 
 **Issue**: Using string concatenation for SQL queries allows SQL injection attacks.
 
 **Current code**:
+
 ```typescript
 export function getUserByEmail(email: string) {
   return db.query(`SELECT * FROM users WHERE email = '${email}'`);
@@ -27,10 +29,11 @@ export function getUserByEmail(email: string) {
 ```
 
 **Recommended**:
+
 ```typescript
 export function getUserByEmail(email: string): Promise<User | null> {
   // Use parameterized query
-  return db.query('SELECT * FROM users WHERE email = $1', [email]);
+  return db.query("SELECT * FROM users WHERE email = $1", [email]);
 }
 ```
 
@@ -39,23 +42,26 @@ export function getUserByEmail(email: string): Promise<User | null> {
 ---
 
 ### 2. XSS Vulnerability
+
 **File**: `src/components/Comment.ts:12`
 
 **Issue**: Directly inserting user content into innerHTML without sanitization.
 
 **Current code**:
+
 ```typescript
 export function displayComment(comment: string) {
-  document.getElementById('comment')!.innerHTML = comment;
+  document.getElementById("comment")!.innerHTML = comment;
 }
 ```
 
 **Recommended**:
+
 ```typescript
 export function displayComment(comment: string): void {
-  const element = document.getElementById('comment');
+  const element = document.getElementById("comment");
   if (!element) {
-    throw new Error('Comment element not found');
+    throw new Error("Comment element not found");
   }
 
   // For plain text, use textContent
@@ -72,21 +78,24 @@ export function displayComment(comment: string): void {
 ---
 
 ### 3. Hardcoded API Key
+
 **File**: `src/api/client.ts:3`
 
 **Issue**: API key is hardcoded in source code and will be exposed in version control.
 
 **Current code**:
+
 ```typescript
-const API_KEY = 'sk_live_1234567890abcdef';
+const API_KEY = "sk_live_1234567890abcdef";
 ```
 
 **Recommended**:
+
 ```typescript
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
-  throw new Error('API_KEY environment variable is not set');
+  throw new Error("API_KEY environment variable is not set");
 }
 ```
 
@@ -95,11 +104,13 @@ if (!API_KEY) {
 ---
 
 ### 4. Missing Error Handling in Async Function
+
 **File**: `src/api/users.ts:23`
 
 **Issue**: No error handling for network failures or invalid responses.
 
 **Current code**:
+
 ```typescript
 export async function fetchUser(id: string) {
   const response = await fetch(`/api/users/${id}`);
@@ -108,6 +119,7 @@ export async function fetchUser(id: string) {
 ```
 
 **Recommended**:
+
 ```typescript
 export async function fetchUser(id: string): Promise<User> {
   try {
@@ -120,13 +132,13 @@ export async function fetchUser(id: string): Promise<User> {
     const data = await response.json();
 
     if (!isUser(data)) {
-      throw new Error('Invalid user data from API');
+      throw new Error("Invalid user data from API");
     }
 
     return data;
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Error fetching user:', error.message);
+      console.error("Error fetching user:", error.message);
     }
     throw error;
   }
@@ -140,11 +152,13 @@ export async function fetchUser(id: string): Promise<User> {
 ## Important Improvements 🟡
 
 ### 5. Using `any` Type Defeats TypeScript's Purpose
+
 **File**: `src/utils/data.ts:8`
 
 **Issue**: Using `any` disables all type checking.
 
 **Current code**:
+
 ```typescript
 export function processData(data: any) {
   return data.value * 2;
@@ -152,6 +166,7 @@ export function processData(data: any) {
 ```
 
 **Recommended**:
+
 ```typescript
 interface DataInput {
   value: number;
@@ -159,16 +174,16 @@ interface DataInput {
 
 function isValidDataInput(data: unknown): data is DataInput {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'value' in data &&
-    typeof (data as DataInput).value === 'number'
+    "value" in data &&
+    typeof (data as DataInput).value === "number"
   );
 }
 
 export function processData(data: unknown): number {
   if (!isValidDataInput(data)) {
-    throw new Error('Invalid data input');
+    throw new Error("Invalid data input");
   }
   return data.value * 2;
 }
@@ -179,11 +194,13 @@ export function processData(data: unknown): number {
 ---
 
 ### 6. Inefficient Algorithm (O(n²) Complexity)
+
 **File**: `src/utils/arrays.ts:15`
 
 **Issue**: Nested loops create quadratic time complexity, which doesn't scale well.
 
 **Current code**:
+
 ```typescript
 export function findCommonItems(list1: string[], list2: string[]) {
   const common = [];
@@ -199,10 +216,11 @@ export function findCommonItems(list1: string[], list2: string[]) {
 ```
 
 **Recommended**:
+
 ```typescript
 export function findCommonItems(list1: string[], list2: string[]): string[] {
   const set2 = new Set(list2);
-  return list1.filter(item => set2.has(item));
+  return list1.filter((item) => set2.has(item));
 }
 ```
 
@@ -211,11 +229,13 @@ export function findCommonItems(list1: string[], list2: string[]): string[] {
 ---
 
 ### 7. Missing Return Type Annotation
+
 **File**: `src/utils/calculate.ts:5`
 
 **Issue**: Function lacks explicit return type, making it harder to catch errors.
 
 **Current code**:
+
 ```typescript
 export function calculateTotal(items) {
   return items.reduce((sum, item) => sum + item.price, 0);
@@ -223,6 +243,7 @@ export function calculateTotal(items) {
 ```
 
 **Recommended**:
+
 ```typescript
 interface Item {
   price: number;
@@ -238,29 +259,32 @@ export function calculateTotal(items: Item[]): number {
 ---
 
 ### 8. Memory Leak - Event Listener Not Cleaned Up
+
 **File**: `src/utils/resize.ts:7`
 
 **Issue**: Event listener is added but never removed, causing a memory leak.
 
 **Current code**:
+
 ```typescript
 export function setupListener() {
-  window.addEventListener('resize', handleResize);
+  window.addEventListener("resize", handleResize);
 }
 ```
 
 **Recommended**:
+
 ```typescript
 export function setupListener(): () => void {
   const handleResize = () => {
-    console.log('Window resized');
+    console.log("Window resized");
   };
 
-  window.addEventListener('resize', handleResize);
+  window.addEventListener("resize", handleResize);
 
   // Return cleanup function
   return () => {
-    window.removeEventListener('resize', handleResize);
+    window.removeEventListener("resize", handleResize);
   };
 }
 
@@ -276,11 +300,13 @@ export function setupListener(): () => void {
 ## Suggestions 🔵
 
 ### 9. Use Union Type Instead of Enum
+
 **File**: `src/types/roles.ts:3`
 
 **Issue**: Regular enums generate runtime code and can cause tree-shaking issues.
 
 **Current code**:
+
 ```typescript
 export enum UserRole {
   Admin,
@@ -290,18 +316,19 @@ export enum UserRole {
 ```
 
 **Recommended**:
+
 ```typescript
 // Option 1: Simple union type
-export type UserRole = 'admin' | 'user' | 'guest';
+export type UserRole = "admin" | "user" | "guest";
 
 // Option 2: If you need both types and values
 export const UserRole = {
-  Admin: 'admin',
-  User: 'user',
-  Guest: 'guest',
+  Admin: "admin",
+  User: "user",
+  Guest: "guest",
 } as const;
 
-export type UserRole = typeof UserRole[keyof typeof UserRole];
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 ```
 
 **Reasoning**: Union types are lighter and tree-shake better. They're the modern TypeScript approach for literal values.
@@ -309,23 +336,26 @@ export type UserRole = typeof UserRole[keyof typeof UserRole];
 ---
 
 ### 10. Use Const Assertion for Better Type Inference
+
 **File**: `src/config/app.ts:1`
 
 **Issue**: Object literals are widened to general types instead of specific literals.
 
 **Current code**:
+
 ```typescript
 export const CONFIG = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 };
 // CONFIG.apiUrl has type: string
 ```
 
 **Recommended**:
+
 ```typescript
 export const CONFIG = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 } as const;
 // CONFIG.apiUrl has type: 'https://api.example.com'
@@ -336,11 +366,13 @@ export const CONFIG = {
 ---
 
 ### 11. Mutating Input Parameters
+
 **File**: `src/utils/arrays.ts:23`
 
 **Issue**: Function mutates the input array, which can cause unexpected side effects.
 
 **Current code**:
+
 ```typescript
 export function addItem(items: string[], newItem: string) {
   items.push(newItem);
@@ -349,6 +381,7 @@ export function addItem(items: string[], newItem: string) {
 ```
 
 **Recommended**:
+
 ```typescript
 export function addItem(items: readonly string[], newItem: string): string[] {
   return [...items, newItem];
@@ -360,11 +393,13 @@ export function addItem(items: readonly string[], newItem: string): string[] {
 ---
 
 ### 12. Sequential Awaits When Parallel Is Possible
+
 **File**: `src/api/loader.ts:10`
 
 **Issue**: Three independent API calls are made sequentially, wasting time.
 
 **Current code**:
+
 ```typescript
 export async function loadData() {
   const users = await fetchUsers();
@@ -375,6 +410,7 @@ export async function loadData() {
 ```
 
 **Recommended**:
+
 ```typescript
 export async function loadData(): Promise<{
   users: User[];
@@ -410,6 +446,7 @@ export async function loadData(): Promise<{
 ## Configuration Recommendations
 
 ### tsconfig.json
+
 Consider adding these additional strict checks:
 
 ```json
@@ -436,18 +473,21 @@ Consider adding these additional strict checks:
 ## Next Steps
 
 ### Immediate Actions (Critical Issues)
+
 1. Fix SQL injection vulnerability in `getUserByEmail` (security risk)
 2. Fix XSS vulnerability in `displayComment` (security risk)
 3. Move API key to environment variables (security risk)
 4. Add error handling to `fetchUser` (reliability)
 
 ### Short-term Improvements (Important)
+
 5. Replace `any` types with proper type definitions
 6. Optimize `findCommonItems` algorithm
 7. Add explicit return types to all functions
 8. Fix memory leak in event listener setup
 
 ### Long-term Enhancements (Suggestions)
+
 9. Refactor enums to union types
 10. Add const assertions where appropriate
 11. Make array operations immutable

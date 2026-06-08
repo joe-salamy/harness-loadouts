@@ -5,6 +5,7 @@ Common mistakes and anti-patterns to avoid in TypeScript code, with explanations
 ## Type System Anti-Patterns
 
 ### ❌ Using `any` as an Escape Hatch
+
 ```typescript
 // Bad - defeats the purpose of TypeScript
 function processData(data: any): any {
@@ -16,15 +17,15 @@ function processData(data: unknown): number {
   if (isValidData(data)) {
     return data.value * 2;
   }
-  throw new Error('Invalid data');
+  throw new Error("Invalid data");
 }
 
 function isValidData(data: unknown): data is { value: number } {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'value' in data &&
-    typeof (data as { value: unknown }).value === 'number'
+    "value" in data &&
+    typeof (data as { value: unknown }).value === "number"
   );
 }
 ```
@@ -34,6 +35,7 @@ function isValidData(data: unknown): data is { value: number } {
 ---
 
 ### ❌ Excessive Type Assertions
+
 ```typescript
 // Bad - forcing types without validation
 const user = data as User;
@@ -43,12 +45,12 @@ const age = user.age as number;
 // Good - validate structure
 function isUser(data: unknown): data is User {
   return (
-    typeof data === 'object' &&
+    typeof data === "object" &&
     data !== null &&
-    'name' in data &&
-    typeof (data as User).name === 'string' &&
-    'age' in data &&
-    typeof (data as User).age === 'number'
+    "name" in data &&
+    typeof (data as User).name === "string" &&
+    "age" in data &&
+    typeof (data as User).age === "number"
   );
 }
 
@@ -62,6 +64,7 @@ if (isUser(data)) {
 ---
 
 ### ❌ Using Enums Incorrectly
+
 ```typescript
 // Bad - regular enum (generates extra code and can cause issues)
 enum Status {
@@ -72,22 +75,22 @@ enum Status {
 
 // Good - const enum (inlined at compile time)
 const enum Status {
-  Pending = 'PENDING',
-  Approved = 'APPROVED',
-  Rejected = 'REJECTED',
+  Pending = "PENDING",
+  Approved = "APPROVED",
+  Rejected = "REJECTED",
 }
 
 // Better - union type (no runtime code, better tree-shaking)
-type Status = 'PENDING' | 'APPROVED' | 'REJECTED';
+type Status = "PENDING" | "APPROVED" | "REJECTED";
 
 // Best - with const object for both types and values
 const Status = {
-  Pending: 'PENDING',
-  Approved: 'APPROVED',
-  Rejected: 'REJECTED',
+  Pending: "PENDING",
+  Approved: "APPROVED",
+  Rejected: "REJECTED",
 } as const;
 
-type Status = typeof Status[keyof typeof Status];
+type Status = (typeof Status)[keyof typeof Status];
 ```
 
 **Why it's bad**: Regular enums generate runtime code and can cause issues with module systems and tree-shaking.
@@ -95,14 +98,13 @@ type Status = typeof Status[keyof typeof Status];
 ---
 
 ### ❌ Not Handling Discriminated Unions Properly
+
 ```typescript
 // Bad - no discriminator property
-type Result =
-  | { data: string }
-  | { error: string };
+type Result = { data: string } | { error: string };
 
 function handle(result: Result) {
-  if ('data' in result) {
+  if ("data" in result) {
     // TypeScript can't narrow this properly in all cases
     return result.data;
   }
@@ -110,11 +112,11 @@ function handle(result: Result) {
 
 // Good - use discriminator property
 type Result =
-  | { type: 'success'; data: string }
-  | { type: 'error'; error: string };
+  | { type: "success"; data: string }
+  | { type: "error"; error: string };
 
 function handle(result: Result) {
-  if (result.type === 'success') {
+  if (result.type === "success") {
     return result.data; // TypeScript knows this is success
   } else {
     throw new Error(result.error);
@@ -129,17 +131,18 @@ function handle(result: Result) {
 ## Async/Promise Anti-Patterns
 
 ### ❌ Mixing Callbacks and Promises
+
 ```typescript
 // Bad - confusing mix of async styles
 function fetchData(callback: (data: Data) => void): Promise<void> {
-  return fetch('/api/data')
-    .then(response => response.json())
-    .then(data => callback(data));
+  return fetch("/api/data")
+    .then((response) => response.json())
+    .then((data) => callback(data));
 }
 
 // Good - use async/await consistently
 async function fetchData(): Promise<Data> {
-  const response = await fetch('/api/data');
+  const response = await fetch("/api/data");
   return response.json();
 }
 ```
@@ -149,6 +152,7 @@ async function fetchData(): Promise<Data> {
 ---
 
 ### ❌ Not Handling Promise Rejections
+
 ```typescript
 // Bad - unhandled promise rejection
 async function loadUser() {
@@ -163,7 +167,7 @@ async function loadUser(): Promise<User> {
     return user;
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Failed to load user:', error.message);
+      console.error("Failed to load user:", error.message);
     }
     throw error; // Re-throw or handle appropriately
   }
@@ -175,6 +179,7 @@ async function loadUser(): Promise<User> {
 ---
 
 ### ❌ Sequential Awaits When Parallel Is Possible
+
 ```typescript
 // Bad - sequential execution (slow)
 async function getData() {
@@ -202,6 +207,7 @@ async function getData() {
 ## Function Anti-Patterns
 
 ### ❌ Optional Parameters Before Required Ones
+
 ```typescript
 // Bad - optional before required
 function createUser(name?: string, id: string) {
@@ -224,6 +230,7 @@ function createUser(params: { id: string; name?: string }) {
 ---
 
 ### ❌ Too Many Parameters
+
 ```typescript
 // Bad - too many parameters
 function createUser(
@@ -233,7 +240,7 @@ function createUser(
   age: number,
   address: string,
   phone: string,
-  role: string
+  role: string,
 ) {
   // ...
 }
@@ -259,6 +266,7 @@ function createUser(params: CreateUserParams) {
 ---
 
 ### ❌ Boolean Flags for Behavior
+
 ```typescript
 // Bad - boolean flag changes behavior
 function getUsers(includeInactive: boolean) {
@@ -279,15 +287,18 @@ function getActiveUsers() {
 
 // Or use discriminated union for complex cases
 type UserFilter =
-  | { type: 'all' }
-  | { type: 'active' }
-  | { type: 'byRole'; role: string };
+  | { type: "all" }
+  | { type: "active" }
+  | { type: "byRole"; role: string };
 
 function getUsers(filter: UserFilter) {
   switch (filter.type) {
-    case 'all': return allUsers;
-    case 'active': return activeUsers;
-    case 'byRole': return allUsers.filter(u => u.role === filter.role);
+    case "all":
+      return allUsers;
+    case "active":
+      return activeUsers;
+    case "byRole":
+      return allUsers.filter((u) => u.role === filter.role);
   }
 }
 ```
@@ -299,6 +310,7 @@ function getUsers(filter: UserFilter) {
 ## Array Anti-Patterns
 
 ### ❌ Mutating Arrays Instead of Creating New Ones
+
 ```typescript
 // Bad - mutates original array
 function addUser(users: User[], newUser: User) {
@@ -322,26 +334,27 @@ function addUser(users: readonly User[], newUser: User): User[] {
 ---
 
 ### ❌ Using `Array.forEach` When Other Methods Are Better
+
 ```typescript
 // Bad - forEach for mapping
 const names: string[] = [];
-users.forEach(user => {
+users.forEach((user) => {
   names.push(user.name);
 });
 
 // Good - use map
-const names = users.map(user => user.name);
+const names = users.map((user) => user.name);
 
 // Bad - forEach for filtering
 const active: User[] = [];
-users.forEach(user => {
+users.forEach((user) => {
   if (user.isActive) {
     active.push(user);
   }
 });
 
 // Good - use filter
-const active = users.filter(user => user.isActive);
+const active = users.filter((user) => user.isActive);
 ```
 
 **Why it's bad**: `map`, `filter`, and `reduce` are more declarative and better express intent.
@@ -351,6 +364,7 @@ const active = users.filter(user => user.isActive);
 ## Object Anti-Patterns
 
 ### ❌ Mutating Objects Instead of Spreading
+
 ```typescript
 // Bad - mutates original object
 function updateUser(user: User, updates: Partial<User>): User {
@@ -369,6 +383,7 @@ function updateUser(user: User, updates: Partial<User>): User {
 ---
 
 ### ❌ Using `delete` to Remove Properties
+
 ```typescript
 // Bad - delete is slow and mutable
 function removePassword(user: User): PublicUser {
@@ -384,7 +399,7 @@ function removePassword(user: User): PublicUser {
 }
 
 // Better - use Omit utility type
-type PublicUser = Omit<User, 'password'>;
+type PublicUser = Omit<User, "password">;
 
 function removePassword(user: User): PublicUser {
   const { password, ...publicUser } = user;
@@ -399,6 +414,7 @@ function removePassword(user: User): PublicUser {
 ## Class Anti-Patterns
 
 ### ❌ Using Classes When Interfaces Would Suffice
+
 ```typescript
 // Bad - unnecessary class for data structure
 class User {
@@ -422,9 +438,9 @@ interface User {
 
 // Create with object literal
 const user: User = {
-  id: '1',
-  name: 'Alice',
-  email: 'alice@example.com',
+  id: "1",
+  name: "Alice",
+  email: "alice@example.com",
 };
 
 // Or factory function if needed
@@ -438,6 +454,7 @@ function createUser(id: string, name: string, email: string): User {
 ---
 
 ### ❌ Not Using Parameter Properties
+
 ```typescript
 // Bad - verbose constructor
 class User {
@@ -457,7 +474,7 @@ class User {
   constructor(
     public id: string,
     public name: string,
-    public email: string
+    public email: string,
   ) {}
 }
 ```
@@ -469,37 +486,40 @@ class User {
 ## Import/Export Anti-Patterns
 
 ### ❌ Barrel Exports with Side Effects
+
 ```typescript
 // Bad - index.ts barrel export
-export * from './module1';
-export * from './module2';
-export * from './module3';
+export * from "./module1";
+export * from "./module2";
+export * from "./module3";
 // ...100 more modules
 
 // Problem: importing one thing loads everything
-import { oneFunction } from './modules'; // Loads all 100+ modules
+import { oneFunction } from "./modules"; // Loads all 100+ modules
 ```
 
 **Why it's bad**: Barrel exports can hurt performance by forcing unnecessary code to load.
 
 **Solution**: Import directly from the module you need:
+
 ```typescript
-import { oneFunction } from './modules/module1';
+import { oneFunction } from "./modules/module1";
 ```
 
 ---
 
 ### ❌ Not Using Type-Only Imports
+
 ```typescript
 // Bad - imports type as value (may be bundled in JS)
-import { User } from './types';
+import { User } from "./types";
 
 function greet(user: User) {
   console.log(`Hello, ${user.name}`);
 }
 
 // Good - type-only import
-import type { User } from './types';
+import type { User } from "./types";
 
 function greet(user: User) {
   console.log(`Hello, ${user.name}`);
@@ -511,16 +531,17 @@ function greet(user: User) {
 ---
 
 ### ❌ Circular Dependencies
+
 ```typescript
 // Bad - file1.ts
-import { functionB } from './file2';
+import { functionB } from "./file2";
 
 export function functionA() {
   return functionB();
 }
 
 // Bad - file2.ts
-import { functionA } from './file1';
+import { functionA } from "./file1";
 
 export function functionB() {
   return functionA();
@@ -536,6 +557,7 @@ export function functionB() {
 ## Error Handling Anti-Patterns
 
 ### ❌ Catching Errors Without Proper Typing
+
 ```typescript
 // Bad - error is unknown type
 try {
@@ -551,7 +573,7 @@ try {
   if (error instanceof Error) {
     console.log(error.message);
   } else {
-    console.log('An unknown error occurred');
+    console.log("An unknown error occurred");
   }
 }
 ```
@@ -561,27 +583,28 @@ try {
 ---
 
 ### ❌ Throwing Non-Error Objects
+
 ```typescript
 // Bad - throwing string
 if (!user) {
-  throw 'User not found';
+  throw "User not found";
 }
 
 // Bad - throwing plain object
 if (!user) {
-  throw { message: 'User not found', code: 404 };
+  throw { message: "User not found", code: 404 };
 }
 
 // Good - throw Error objects
 if (!user) {
-  throw new Error('User not found');
+  throw new Error("User not found");
 }
 
 // Better - custom error class
 class UserNotFoundError extends Error {
   constructor(public userId: string) {
     super(`User not found: ${userId}`);
-    this.name = 'UserNotFoundError';
+    this.name = "UserNotFoundError";
   }
 }
 
@@ -597,14 +620,15 @@ if (!user) {
 ## Type Inference Anti-Patterns
 
 ### ❌ Over-Specifying Types
+
 ```typescript
 // Bad - unnecessary type annotations
-const name: string = 'Alice';
+const name: string = "Alice";
 const age: number = 30;
 const isActive: boolean = true;
 
 // Good - let TypeScript infer
-const name = 'Alice';
+const name = "Alice";
 const age = 30;
 const isActive = true;
 ```
@@ -616,21 +640,22 @@ const isActive = true;
 ---
 
 ### ❌ Not Using Type Narrowing
+
 ```typescript
 // Bad - repeated type guards
 function processValue(value: string | number) {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.toUpperCase();
   }
 
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return value.toFixed(2);
   }
 }
 
 // Good - exhaustive check with else
 function processValue(value: string | number): string {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.toUpperCase();
   } else {
     // TypeScript knows value is number here
@@ -646,6 +671,7 @@ function processValue(value: string | number): string {
 ## Performance Anti-Patterns
 
 ### ❌ Expensive Type Calculations
+
 ```typescript
 // Bad - deeply recursive type that slows compilation
 type DeepPartial<T> = T extends object
@@ -664,17 +690,18 @@ type PartialConfig = Partial<VeryNestedConfig>;
 ---
 
 ### ❌ Not Using `const` Assertions for Literal Types
+
 ```typescript
 // Bad - loses literal types
 const config = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 };
 // config.apiUrl is type 'string'
 
 // Good - preserves literal types
 const config = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 } as const;
 // config.apiUrl is type 'https://api.example.com'
@@ -687,17 +714,18 @@ const config = {
 ## Testing Anti-Patterns
 
 ### ❌ Using `any` in Tests
+
 ```typescript
 // Bad - defeats type safety in tests
 const mockUser: any = {
-  name: 'Alice',
+  name: "Alice",
 };
 
 // Good - proper typing
 const mockUser: User = {
-  id: '1',
-  name: 'Alice',
-  email: 'alice@example.com',
+  id: "1",
+  name: "Alice",
+  email: "alice@example.com",
   createdAt: new Date(),
 };
 ```
@@ -707,13 +735,14 @@ const mockUser: User = {
 ---
 
 ### ❌ Not Testing Type Failures
+
 ```typescript
 // Good - use @ts-expect-error to test invalid usage
 // @ts-expect-error - should not accept number
 createUser(123);
 
 // @ts-expect-error - should require email
-createUser({ name: 'Alice' });
+createUser({ name: "Alice" });
 ```
 
 **Why it's good**: Ensures your types prevent invalid usage as expected.

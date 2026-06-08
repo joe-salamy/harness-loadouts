@@ -43,12 +43,10 @@ export function addItem(items: string[], newItem: string) {
 }
 
 // Issue 7: No discriminated union
-export type ApiResponse =
-  | { data: string }
-  | { error: string };
+export type ApiResponse = { data: string } | { error: string };
 
 export function handleResponse(response: ApiResponse) {
-  if ('data' in response) {
+  if ("data" in response) {
     return response.data;
   }
   throw new Error(response.error);
@@ -75,17 +73,17 @@ export function getElement(id: string) {
 
 // Issue 11: Not using const assertion for literal types
 export const CONFIG = {
-  apiUrl: 'https://api.example.com',
+  apiUrl: "https://api.example.com",
   timeout: 5000,
 };
 
 // Issue 12: Hardcoded sensitive data
-const API_KEY = 'sk_live_1234567890abcdef';
+const API_KEY = "sk_live_1234567890abcdef";
 
 export function callApi(endpoint: string) {
   return fetch(`https://api.example.com${endpoint}`, {
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${API_KEY}`,
     },
   });
 }
@@ -97,7 +95,7 @@ export function getUserByEmail(email: string) {
 
 // Issue 14: XSS vulnerability
 export function displayComment(comment: string) {
-  document.getElementById('comment')!.innerHTML = comment;
+  document.getElementById("comment")!.innerHTML = comment;
 }
 
 // Issue 15: Missing interface for object shape
@@ -144,11 +142,11 @@ export function removePassword(user: User) {
 
 // Issue 20: Memory leak - not cleaning up event listener
 export function setupListener() {
-  window.addEventListener('resize', handleResize);
+  window.addEventListener("resize", handleResize);
 }
 
 function handleResize() {
-  console.log('Window resized');
+  console.log("Window resized");
 }
 
 // Helper types (incomplete definitions for the example)
