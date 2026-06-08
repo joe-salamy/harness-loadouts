@@ -303,6 +303,11 @@ class SharedHarnessSelectionTests(unittest.TestCase):
 
         self.assertEqual(args.harness_dir, ".custom")
 
+    def test_shared_parser_leaves_base_unset_for_auto_detection(self) -> None:
+        args = flow.build_parser().parse_args(["--plan", "docs/plans/p.md"])
+
+        self.assertIsNone(args.base)
+
     def test_omp_harness_exec_uses_omp_command_and_handoff_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
@@ -415,6 +420,111 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             names = flow.HarnessWorktreeFlow(config, runner).unique_feature_names(repo, "example")
             self.assertEqual(names.branch, "feature/example-2")
             self.assertEqual(names.worktree.name, "repo-example-2")
+
+    def test_validate_auto_detects_master_when_main_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            plan = repo / "plan.md"
+            repo.mkdir()
+            plan.write_text("# Plan", encoding="utf-8")
+            runner = FakeRunner(
+                {
+                    (
+                        "git",
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        "main",
+                    ): flow.CommandResult((), repo, 1, "", ""),
+                    (
+                        "git",
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        "master",
+                    ): flow.CommandResult((), repo, 0, "master\n", ""),
+                }
+            )
+            config = flow.FlowConfig(
+                repo=repo,
+                plan=plan,
+                base=None,
+                model=None,
+                harness="codex",
+                harness_dir=Path(".codex"),
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+            subject = flow.HarnessWorktreeFlow(config, runner)
+
+            subject.validate(repo, plan)
+
+            self.assertEqual(subject.base, "master")
+
+    def test_validate_falls_back_to_current_branch_when_main_and_master_are_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            plan = repo / "plan.md"
+            repo.mkdir()
+            plan.write_text("# Plan", encoding="utf-8")
+            runner = FakeRunner(
+                {
+                    (
+                        "git",
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        "main",
+                    ): flow.CommandResult((), repo, 1, "", ""),
+                    (
+                        "git",
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        "master",
+                    ): flow.CommandResult((), repo, 1, "", ""),
+                    ("git", "branch", "--show-current"): "trunk\n",
+                }
+            )
+            config = flow.FlowConfig(
+                repo=repo,
+                plan=plan,
+                base=None,
+                model=None,
+                harness="codex",
+                harness_dir=Path(".codex"),
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+            subject = flow.HarnessWorktreeFlow(config, runner)
+
+            subject.validate(repo, plan)
+
+            self.assertEqual(subject.base, "trunk")
+
+    def test_validate_does_not_fallback_when_explicit_base_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            plan = repo / "plan.md"
+            repo.mkdir()
+            plan.write_text("# Plan", encoding="utf-8")
+            runner = FakeRunner(
+                {
+                    (
+                        "git",
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        "main",
+                    ): flow.CommandResult((), repo, 1, "", ""),
+                }
+            )
+            subject = flow.HarnessWorktreeFlow(self.config(repo, plan), runner)
+
+            with self.assertRaisesRegex(
+                flow.FlowError, "Base ref does not exist: main"
+            ):
+                subject.validate(repo, plan)
 
     def test_plan_inside_repo_uses_same_relative_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -19,6 +19,7 @@ from typing import Sequence
 
 EMPTY_SKILL_USAGE_LEDGER = {"version": 1, "scopes": {}}
 MAX_LOG_OUTPUT_CHARS = 20_000
+DEFAULT_BASE_CANDIDATES = ("main", "master")
 
 
 def decode_subprocess_output(value: object) -> str:
@@ -246,7 +247,7 @@ class Names:
 class FlowConfig:
     repo: Path
     plan: Path
-    base: str
+    base: str | None
     model: str | None
     harness: str
     harness_dir: Path
@@ -261,6 +262,13 @@ class HarnessWorktreeFlow:
         self.config = config
         self.runner = runner
         self.log_file: Path | None = None
+        self._base = config.base
+
+    @property
+    def base(self) -> str:
+        if self._base is None:
+            raise FlowError("Base ref has not been resolved.")
+        return self._base
 
     @property
     def harness_dir(self) -> Path:
@@ -328,8 +336,47 @@ class HarnessWorktreeFlow:
         if not plan.exists():
             raise FlowError(f"Plan file does not exist: {plan}")
         self.runner.run(["git", "fetch", "--all", "--prune"], repo)
-        self.runner.run(["git", "rev-parse", "--verify", self.config.base], repo)
+        self._base = self.resolve_base(repo)
         self.runner.run([self.config.harness, "exec", "--help"], repo)
+
+    def resolve_base(self, repo: Path) -> str:
+        if self._base:
+            if self.ref_exists(repo, self._base):
+                return self._base
+            raise FlowError(
+                f"Base ref does not exist: {self._base}. Pass --base <branch> "
+                "or create the branch before running the workflow."
+            )
+
+        for candidate in DEFAULT_BASE_CANDIDATES:
+            if self.ref_exists(repo, candidate):
+                return candidate
+
+        current = self.current_branch(repo)
+        if current:
+            return current
+
+        raise FlowError(
+            "Could not infer a base branch. Pass --base <branch> explicitly."
+        )
+
+    def ref_exists(self, repo: Path, ref: str) -> bool:
+        return (
+            self.runner.run(
+                ["git", "rev-parse", "--verify", "--quiet", ref],
+                repo,
+                check=False,
+            ).returncode
+            == 0
+        )
+
+    def current_branch(self, repo: Path) -> str:
+        result = self.runner.run(
+            ["git", "branch", "--show-current"],
+            repo,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
 
     def git_root(self, start: Path) -> Path:
         result = self.runner.run(["git", "rev-parse", "--show-toplevel"], start)
@@ -361,7 +408,7 @@ class HarnessWorktreeFlow:
                 str(names.worktree),
                 "-b",
                 names.branch,
-                self.config.base,
+                self.base,
             ],
             repo,
         )
@@ -422,7 +469,7 @@ Read:
 - `{self.handoff_dir.as_posix()}/implementation-summary.md`
 {f"- `{self.handoff_dir.as_posix()}/conflict-resolution-summary.md`" if post_conflict else ""}
 
-Audit the actual diff against `{self.config.base}`. Fix confirmed issues and run relevant tests.
+Audit the actual diff against `{self.base}`. Fix confirmed issues and run relevant tests.
 {audit_finish_instruction}
 Do not commit files under `{self.handoff_dir.as_posix()}/`; they are workflow artifacts and must remain untracked.
 Write `{summary.as_posix()}` before finishing.
@@ -500,7 +547,7 @@ Write `{summary.as_posix()}` before finishing.
                 str(integration_worktree),
                 "-b",
                 integration_branch,
-                self.config.base,
+                self.base,
             ],
             repo,
         )
@@ -598,7 +645,7 @@ Write `{summary.as_posix()}` before finishing.
             self.archive_handoff(
                 repo, integration_worktree, names.run_id, "integration"
             )
-            self.runner.run(["git", "switch", self.config.base], repo)
+            self.runner.run(["git", "switch", self.base], repo)
             fast_forward = self.runner.run(
                 ["git", "merge", "--ff-only", integration_branch],
                 repo,
@@ -636,7 +683,7 @@ Read:
 - `{self.handoff_dir.as_posix()}/implementation-summary.md`
 - `{self.handoff_dir.as_posix()}/audit-summary.md`
 
-Preserve latest `{self.config.base}` behavior unless the approved plan explicitly supersedes it. Keep the resolution narrow, remove all conflict markers, run focused checks if possible, and write `{self.handoff_dir.as_posix()}/conflict-resolution-summary.md`.
+Preserve latest `{self.base}` behavior unless the approved plan explicitly supersedes it. Keep the resolution narrow, remove all conflict markers, run focused checks if possible, and write `{self.handoff_dir.as_posix()}/conflict-resolution-summary.md`.
 Do not commit.
 """
         self.harness_exec(
@@ -868,7 +915,7 @@ Do not commit.
 
     def commit_count_since_base(self, worktree: Path, branch: str) -> int:
         result = self.runner.run(
-            ["git", "rev-list", "--count", f"{self.config.base}..{branch}"],
+            ["git", "rev-list", "--count", f"{self.base}..{branch}"],
             worktree,
         )
         raw = result.stdout.strip()
@@ -881,13 +928,13 @@ Do not commit.
         if count <= 0:
             raise FlowError(
                 f"{phase_name} did not create any commits on {branch} after "
-                f"{self.config.base}. Commit the completed implementation before "
+                f"{self.base}. Commit the completed implementation before "
                 "continuing."
             )
 
     def require_branch_changed_since_base(self, worktree: Path, branch: str) -> None:
         result = self.runner.run(
-            ["git", "diff", "--quiet", f"{self.config.base}...{branch}", "--", "."],
+            ["git", "diff", "--quiet", f"{self.base}...{branch}", "--", "."],
             worktree,
             check=False,
         )
@@ -895,7 +942,7 @@ Do not commit.
             return
         if result.returncode == 0:
             raise FlowError(
-                f"{branch} has no file changes compared with {self.config.base}. "
+                f"{branch} has no file changes compared with {self.base}. "
                 "The workflow cannot integrate a no-op implementation."
             )
         raise FlowError(format_command_failure(result))
@@ -1076,7 +1123,7 @@ foreach ($item in $items) {
             check=False,
         ).stdout
         merge_base = self.runner.run(
-            ["git", "merge-base", self.config.base, names.branch],
+            ["git", "merge-base", self.base, names.branch],
             integration_worktree,
             check=False,
         ).stdout.strip()
@@ -1084,7 +1131,7 @@ foreach ($item in $items) {
         feature_log = ""
         if merge_base:
             base_log = self.runner.run(
-                ["git", "log", "--oneline", f"{merge_base}..{self.config.base}"],
+                ["git", "log", "--oneline", f"{merge_base}..{self.base}"],
                 integration_worktree,
                 check=False,
             ).stdout
@@ -1097,7 +1144,7 @@ foreach ($item in $items) {
         return f"""# Merge Conflict Context
 
 ## Branches
-- Base branch: {self.config.base}
+- Base branch: {self.base}
 - Feature branch: {names.branch}
 
 ## Plan
@@ -1220,7 +1267,11 @@ def build_parser(
         "--repo", default=".", help="Repository root. Defaults to current directory."
     )
     parser.add_argument(
-        "--base", default="main", help="Base branch/ref. Defaults to main."
+        "--base",
+        help=(
+            "Base branch/ref. Defaults to the first existing branch among main, "
+            "master, then the current branch."
+        ),
     )
     parser.add_argument("--model", help="Optional harness model override.")
     parser.add_argument(
