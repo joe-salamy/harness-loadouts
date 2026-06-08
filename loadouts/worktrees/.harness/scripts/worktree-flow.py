@@ -337,7 +337,7 @@ class HarnessWorktreeFlow:
             raise FlowError(f"Plan file does not exist: {plan}")
         self.runner.run(["git", "fetch", "--all", "--prune"], repo)
         self._base = self.resolve_base(repo)
-        self.runner.run([self.config.harness, "exec", "--help"], repo)
+        self.runner.run(self.harness_validation_command(), repo)
 
     def resolve_base(self, repo: Path) -> str:
         if self._base:
@@ -490,8 +490,32 @@ Write `{summary.as_posix()}` before finishing.
             return "danger-full-access"
         return "workspace-write"
 
-    def harness_exec(self, cwd: Path, prompt: str, output_file: Path) -> None:
-        self.ensure_dir(output_file.parent)
+    def is_omp_harness(self) -> bool:
+        return Path(self.config.harness).name.lower().split(".", 1)[0] == "omp"
+
+    def harness_validation_command(self) -> list[str]:
+        if self.is_omp_harness():
+            return [self.config.harness, "--help"]
+        return [self.config.harness, "exec", "--help"]
+
+    def omp_prompt_file(self, output_file: Path) -> Path:
+        return output_file.with_name(f"{output_file.stem}-prompt.md")
+
+    def omp_exec_args(self, prompt_file: Path) -> list[str]:
+        args = [
+            self.config.harness,
+            "-p",
+            "--no-session",
+            "--auto-approve",
+            "--approval-mode",
+            "yolo",
+        ]
+        if self.config.model:
+            args.extend(["--model", self.config.model])
+        args.append(f"@{prompt_file}")
+        return args
+
+    def codex_exec_args(self, cwd: Path, output_file: Path) -> list[str]:
         args = [
             self.config.harness,
             "exec",
@@ -505,13 +529,34 @@ Write `{summary.as_posix()}` before finishing.
         if self.config.model:
             args.extend(["--model", self.config.model])
         args.extend(["--output-last-message", str(output_file), "-"])
+        return args
+
+    def harness_exec(self, cwd: Path, prompt: str, output_file: Path) -> None:
+        self.ensure_dir(output_file.parent)
+        prompt_file: Path | None = None
+        input_text: str | None = prompt
+        if self.is_omp_harness():
+            prompt_file = self.omp_prompt_file(output_file)
+            self.write_text(prompt_file, prompt)
+            args = self.omp_exec_args(prompt_file)
+            input_text = None
+        else:
+            args = self.codex_exec_args(cwd, output_file)
         self.log_event(
             "harness_exec_start",
             cwd=str(cwd),
             output_file=str(output_file),
             command=logged_command(args),
         )
-        result = self.runner.run(args, cwd, check=False, input_text=prompt)
+        result = self.runner.run(args, cwd, check=False, input_text=input_text)
+        if self.is_omp_harness():
+            self.write_text(output_file, result.stdout)
+            if (
+                prompt_file is not None
+                and result.returncode == 0
+                and not result.timed_out
+            ):
+                prompt_file.unlink(missing_ok=True)
         output_fields = {
             "output_file": str(output_file),
             "output_file_exists": output_file.exists(),

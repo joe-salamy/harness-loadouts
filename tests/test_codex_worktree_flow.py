@@ -308,12 +308,49 @@ class SharedHarnessSelectionTests(unittest.TestCase):
 
         self.assertIsNone(args.base)
 
-    def test_omp_harness_exec_uses_omp_command_and_handoff_path(self) -> None:
+    def test_validate_omp_harness_checks_current_cli_help(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            plan = repo / "plan.md"
+            repo.mkdir()
+            plan.write_text("# Plan", encoding="utf-8")
+            runner = FakeRunner()
+            config = flow.FlowConfig(
+                repo=repo,
+                plan=plan,
+                base="main",
+                model=None,
+                harness="omp",
+                harness_dir=Path(".omp"),
+                merge_mode="squash",
+                keep_worktrees=False,
+            )
+            subject = flow.HarnessWorktreeFlow(config, runner)
+
+            subject.validate(repo, plan)
+
+            commands = [call[0] for call in runner.calls]
+            self.assertIn(("omp", "--help"), commands)
+            self.assertNotIn(("omp", "exec", "--help"), commands)
+
+
+    def test_omp_harness_exec_uses_print_mode_prompt_file_and_writes_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             repo.mkdir()
-            (repo / ".omp").mkdir()
-            runner = FakeRunner()
+            (repo / ".omp" / "handoff").mkdir(parents=True)
+            output_file = repo / ".omp" / "handoff" / "implementation-final-response.md"
+            prompt_file = output_file.with_name("implementation-final-response-prompt.md")
+            args = (
+                "omp",
+                "-p",
+                "--no-session",
+                "--auto-approve",
+                "--approval-mode",
+                "yolo",
+                f"@{prompt_file}",
+            )
+            runner = FakeRunner({args: "Final response"})
             config = flow.FlowConfig(
                 repo=repo,
                 plan=repo / "plan.md",
@@ -326,13 +363,12 @@ class SharedHarnessSelectionTests(unittest.TestCase):
             )
             subject = flow.HarnessWorktreeFlow(config, runner)
 
-            output_file = repo / ".omp" / "handoff" / "implementation-final-response.md"
             subject.harness_exec(repo, "Prompt", output_file)
 
-            args = runner.calls[-1][0]
-            self.assertEqual(args[:2], ("omp", "exec"))
-            self.assertIn(str(output_file), args)
-            self.assertIn(str((repo / ".omp").resolve()), args)
+            self.assertEqual(runner.calls[-1][0], args)
+            self.assertIsNone(runner.inputs[-1])
+            self.assertEqual(output_file.read_text(encoding="utf-8"), "Final response")
+            self.assertFalse(prompt_file.exists())
 
     def test_omp_consolidates_existing_repo_ledger_not_created_omp_ledger(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
