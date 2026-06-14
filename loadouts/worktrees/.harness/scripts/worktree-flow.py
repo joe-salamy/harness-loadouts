@@ -12,14 +12,16 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
 EMPTY_SKILL_USAGE_LEDGER = {"version": 1, "scopes": {}}
+WORKFLOW_STATE_FILENAME = "workflow-state.json"
 MAX_LOG_OUTPUT_CHARS = 20_000
 DEFAULT_BASE_CANDIDATES = ("main", "master")
+WORKTREE_FLOW_DIRNAME = "worktree-flow"
 
 
 def decode_subprocess_output(value: object) -> str:
@@ -48,6 +50,25 @@ def logged_command(args: Sequence[str]) -> list[str]:
     if command and command[-1] == "-":
         command.pop()
     return command
+
+
+def wsl_drive_mount_to_windows_path(path: Path) -> str | None:
+    raw = path.as_posix()
+    match = re.fullmatch(r"/mnt/([A-Za-z])(?:/(.*))?", raw)
+    if match is None:
+        return None
+    drive = match.group(1).upper()
+    tail = match.group(2)
+    if not tail:
+        return f"{drive}:\\"
+    windows_tail = tail.replace("/", "\\")
+    return f"{drive}:\\{windows_tail}"
+
+
+def is_windows_executable_path(executable: str | None) -> bool:
+    if executable is None:
+        return False
+    return executable.replace("\\", "/").lower().endswith(".exe")
 
 
 def positive_seconds(value: str) -> float:
@@ -110,6 +131,21 @@ class CommandRunner:
         self.dry_run = dry_run
         self.command_timeout_seconds = command_timeout_seconds
 
+    @staticmethod
+    def resolve_executable(command: str) -> str | None:
+        executable = shutil.which(command)
+        if executable is not None:
+            return executable
+        if Path(command).suffix.lower() == ".exe":
+            return None
+        return shutil.which(f"{command}.exe")
+
+    @staticmethod
+    def executable_not_found_message(command: str) -> str:
+        if Path(command).suffix.lower() == ".exe":
+            return f"Executable not found on PATH: {command}"
+        return f"Executable not found on PATH: {command} (also tried {command}.exe)"
+
     def run(
         self,
         args: Sequence[str],
@@ -133,9 +169,9 @@ class CommandRunner:
                 duration_ms=0,
             )
 
-        executable = shutil.which(args[0])
+        executable = self.resolve_executable(args[0])
         if executable is None:
-            raise FlowError(f"Executable not found on PATH: {args[0]}")
+            raise FlowError(self.executable_not_found_message(args[0]))
         resolved_args = [executable, *args[1:]]
         try:
             completed = subprocess.run(
@@ -218,6 +254,12 @@ def derive_slug(plan_path: Path) -> str:
     return slugify(plan_title(plan_path))
 
 
+def slug_from_branch(branch: str) -> str:
+    if branch.startswith("feature/"):
+        return branch.removeprefix("feature/")
+    return slugify(branch)
+
+
 def is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.resolve().relative_to(parent.resolve())
@@ -241,6 +283,22 @@ class Names:
     branch: str
     worktree: Path
     run_id: str
+
+
+@dataclass(frozen=True)
+class WorkflowState:
+    run_id: str
+    slug: str
+    base: str
+    plan_title: str
+    feature_branch: str
+    feature_worktree: str
+    merge_mode: str
+    plan_path: str | None = None
+    integration_branch: str | None = None
+    integration_worktree: str | None = None
+    audit_head_before: str | None = None
+    completed_stage: str = "feature_worktree_created"
 
 
 @dataclass(frozen=True)
@@ -275,6 +333,10 @@ class HarnessWorktreeFlow:
         return self.config.harness_dir
 
     @property
+    def worktree_flow_dir(self) -> Path:
+        return self.config.harness_dir / WORKTREE_FLOW_DIRNAME
+
+    @property
     def handoff_dir(self) -> Path:
         return self.config.harness_dir / "handoff"
 
@@ -286,43 +348,37 @@ class HarnessWorktreeFlow:
         names = self.unique_feature_names(repo, derive_slug(plan))
         self.prepare_harness_permissions(repo / self.harness_dir)
         self.prepare_git_permissions(repo)
-        self.start_log(repo, names.run_id)
+        # Keep workflow logs inside the script-created worktree. Writing them in
+        # the primary checkout makes the checkout dirty before the final merge.
         print(f"Feature branch: {names.branch}")
         print(f"Feature worktree: {names.worktree}")
 
         try:
             self.create_feature_worktree(repo, names)
-            plan_in_worktree = self.ensure_plan_in_worktree(
-                repo, plan, names.worktree, names.slug
+            self.start_log(names.worktree, names.run_id)
+            self.log_event(
+                "feature_worktree_created",
+                branch=names.branch,
+                worktree=str(names.worktree),
             )
-            self.snapshot_skill_usage_baseline(names.worktree, repo)
-            self.run_implementation(names.worktree, plan_in_worktree)
-            self.require_file(
-                names.worktree / self.handoff_dir / "implementation-summary.md"
+            state = WorkflowState(
+                run_id=names.run_id,
+                slug=names.slug,
+                base=self.base,
+                plan_title=plan_title(plan),
+                feature_branch=names.branch,
+                feature_worktree=str(names.worktree),
+                merge_mode=self.config.merge_mode,
+                completed_stage="feature_worktree_created",
             )
-            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
-            self.require_implementation_invariants(names.worktree, names.branch)
-            audit_head_before = self.head_rev(names.worktree)
-            self.run_audit(names.worktree, plan_in_worktree)
-            self.require_file(names.worktree / self.handoff_dir / "audit-summary.md")
-            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
-            self.require_audit_invariants(
-                names.worktree, names.branch, audit_head_before
-            )
-            archive_dir = self.archive_handoff(
-                repo, names.worktree, names.run_id, "feature"
-            )
-            print(f"Handoff archive: {archive_dir}")
-
+            self.save_workflow_state(state)
+            state, plan_in_worktree = self.run_feature_phases(repo, plan, state, names)
             if self.config.merge_mode == "stop":
-                print("Stopped before merge by request.")
-                print(f"Plan: {plan_in_worktree}")
-                print(f"Worktree: {names.worktree}")
-                print(f"Branch: {names.branch}")
+                state = self.stop_before_merge(repo, state, names, plan_in_worktree)
                 return
 
             self.require_ready_for_integration(names.worktree, names.branch)
-            self.finish(repo, names, plan_in_worktree, plan_title(plan))
+            self.finish(repo, state, names, plan_in_worktree)
         except CommandFailureError as exc:
             self.log_command_result(
                 "command_failure",
@@ -331,6 +387,41 @@ class HarnessWorktreeFlow:
                 step="checked_command",
             )
             raise
+
+    def workflow_state_file(self, worktree: Path) -> Path:
+        return worktree / self.handoff_dir / WORKFLOW_STATE_FILENAME
+
+    def save_workflow_state_file(self, path: Path, state: WorkflowState) -> None:
+        self.ensure_dir(path.parent)
+        self.write_text(
+            path, json.dumps(asdict(state), indent=2, sort_keys=True) + "\n"
+        )
+
+    def save_workflow_state(
+        self, state: WorkflowState, *, worktree: Path | None = None
+    ) -> None:
+        target_worktree = worktree or Path(state.feature_worktree)
+        self.save_workflow_state_file(self.workflow_state_file(target_worktree), state)
+
+    def load_workflow_state(self, worktree: Path) -> WorkflowState | None:
+        path = self.workflow_state_file(worktree)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return WorkflowState(**data)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise FlowError(f"Invalid workflow state file: {path}") from exc
+
+    def update_workflow_state(
+        self, state: WorkflowState, **changes: object
+    ) -> WorkflowState:
+        updated = replace(state, **changes)
+        self.save_workflow_state(updated)
+        self.log_event(
+            "workflow_state_updated", completed_stage=updated.completed_stage
+        )
+        return updated
 
     def validate(self, repo: Path, plan: Path) -> None:
         if not plan.exists():
@@ -412,29 +503,249 @@ class HarnessWorktreeFlow:
             ],
             repo,
         )
-        self.prepare_harness_permissions(names.worktree / self.harness_dir)
-        self.ensure_dir(names.worktree / self.handoff_dir)
-        self.prepare_harness_permissions(names.worktree / self.harness_dir)
-        self.prepare_git_permissions(names.worktree)
+        self.prepare_new_worktree(names.worktree)
+
+    def prepare_existing_worktree(self, worktree: Path) -> None:
+        self.prepare_harness_permissions(worktree / self.harness_dir)
+        self.ensure_dir(worktree / self.handoff_dir)
+        self.prepare_git_permissions(worktree)
+
+    def prepare_new_worktree(self, worktree: Path) -> None:
+        self.prepare_harness_permissions(worktree / self.harness_dir)
+        self.ensure_dir(worktree / self.handoff_dir)
+        self.prepare_harness_permissions(worktree / self.harness_dir)
+        self.prepare_git_permissions(worktree)
 
     def ensure_plan_in_worktree(
         self, repo: Path, plan: Path, worktree: Path, slug: str
     ) -> Path:
+        rel = self.worktree_flow_dir / slug / "plan.md"
         if is_relative_to(plan, repo):
-            rel = plan.relative_to(repo)
-            target = worktree / rel
-            if target.exists():
-                return target
-        else:
-            rel = Path("docs") / "plans" / f"{slug}.md"
-            target = worktree / rel
+            source_rel = plan.relative_to(repo)
+            if source_rel == rel:
+                target = worktree / rel
+                if target.exists():
+                    return target
+        target = worktree / rel
 
         self.ensure_dir(target.parent)
         self.copy_file(plan, target)
         return target
 
-    def run_implementation(self, worktree: Path, plan_path: Path) -> None:
-        prompt = f"""Use the implement-worktree skill.
+    def run_id_from_handoff(self, worktree: Path, fallback_slug: str) -> str:
+        log_file = worktree / self.handoff_dir / "workflow.jsonl"
+        if log_file.exists():
+            for line in log_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                run_id = record.get("run_id")
+                if isinstance(run_id, str) and run_id:
+                    return run_id
+        return datetime.now().strftime(f"{fallback_slug}-%Y%m%d-%H%M%S")
+
+    def tracked_path_exists(self, worktree: Path, path: Path) -> bool:
+        try:
+            rel = path.relative_to(worktree)
+        except ValueError:
+            return False
+        result = self.runner.run(
+            ["git", "ls-files", "--error-unmatch", "--", rel.as_posix()],
+            worktree,
+            check=False,
+        )
+        return result.returncode == 0
+
+    def remove_untracked_workflow_plan(self, worktree: Path, slug: str) -> None:
+        workflow_plans = (
+            worktree / self.worktree_flow_dir / slug / "plan.md",
+            worktree / self.worktree_flow_dir / slug / ".plan.md",
+            worktree / self.worktree_flow_dir / f"{slug}.md",
+        )
+        for workflow_plan in workflow_plans:
+            if workflow_plan.exists() and not self.tracked_path_exists(
+                worktree, workflow_plan
+            ):
+                workflow_plan.unlink()
+
+    def copy_plan_to_handoff(self, plan: Path, worktree: Path) -> Path:
+        target = worktree / self.handoff_dir / "resume-plan.md"
+        self.copy_file(plan, target)
+        return target
+
+    def resume(
+        self,
+        *,
+        repo: Path,
+        plan: Path,
+        worktree: Path,
+        branch: str | None,
+        run_id: str | None,
+        integration_worktree: Path | None,
+        integration_branch: str | None,
+    ) -> None:
+        self.runner.run(["git", "worktree", "repair", str(worktree)], repo, check=False)
+        self.prepare_harness_permissions(worktree / self.harness_dir)
+        self.prepare_git_permissions(worktree)
+
+        state = self.load_workflow_state(worktree)
+        if state is None:
+            resolved_branch = branch or self.current_branch(worktree)
+            if not resolved_branch:
+                raise FlowError(
+                    "Could not infer the feature branch from the worktree; pass --branch."
+                )
+            slug = slug_from_branch(resolved_branch)
+            state = WorkflowState(
+                run_id=run_id or self.run_id_from_handoff(worktree, slug),
+                slug=slug,
+                base=self.base,
+                plan_title=plan_title(plan),
+                feature_branch=resolved_branch,
+                feature_worktree=str(worktree),
+                merge_mode=self.config.merge_mode,
+                integration_branch=integration_branch,
+                integration_worktree=(
+                    str(integration_worktree) if integration_worktree else None
+                ),
+                completed_stage="legacy_state_inferred",
+            )
+            self.save_workflow_state(state, worktree=worktree)
+        else:
+            changes: dict[str, object] = {}
+            if state.integration_worktree is None and integration_worktree is not None:
+                changes["integration_worktree"] = str(integration_worktree)
+            if state.integration_branch is None and integration_branch is not None:
+                changes["integration_branch"] = integration_branch
+            if changes:
+                state = self.update_workflow_state(state, **changes)
+            if not self.ref_exists(repo, state.base):
+                raise FlowError(
+                    f"Base ref from workflow state does not exist: {state.base}."
+                )
+            self._base = state.base
+
+        self.continue_log(worktree, state.run_id)
+        names = Names(
+            state.slug,
+            state.feature_branch,
+            Path(state.feature_worktree),
+            state.run_id,
+        )
+        state, plan_in_worktree = self.run_feature_phases(repo, plan, state, names)
+        if state.merge_mode == "stop":
+            state = self.stop_before_merge(repo, state, names, plan_in_worktree)
+            return
+
+        self.require_ready_for_integration(names.worktree, names.branch)
+        self.finish(repo, state, names, plan_in_worktree)
+
+    def stop_before_merge(
+        self, repo: Path, state: WorkflowState, names: Names, plan_in_worktree: Path
+    ) -> WorkflowState:
+        archive_dir = self.archive_handoff(repo, names.worktree, names.run_id)
+        state = self.update_workflow_state(
+            state, completed_stage="stopped_before_merge"
+        )
+        print(f"Handoff archive: {archive_dir}")
+        print("Stopped before merge by request.")
+        print(f"Plan: {plan_in_worktree}")
+        print(f"Worktree: {names.worktree}")
+        print(f"Branch: {names.branch}")
+        return state
+
+    def run_feature_phases(
+        self, repo: Path, plan: Path, state: WorkflowState, names: Names
+    ) -> tuple[WorkflowState, Path]:
+        state, plan_in_worktree = self.ensure_plan_stage(repo, plan, state, names)
+        state = self.ensure_skill_usage_baseline(repo, state, names)
+        state = self.ensure_implementation_complete(state, names, plan_in_worktree)
+        state = self.ensure_audit_complete(state, names, plan_in_worktree)
+        return state, plan_in_worktree
+
+    def ensure_plan_stage(
+        self, repo: Path, plan: Path, state: WorkflowState, names: Names
+    ) -> tuple[WorkflowState, Path]:
+        if state.plan_path and Path(state.plan_path).exists():
+            plan_in_worktree = Path(state.plan_path)
+        elif state.completed_stage == "legacy_state_inferred":
+            plan_in_worktree = self.copy_plan_to_handoff(plan, names.worktree)
+            self.remove_untracked_workflow_plan(names.worktree, names.slug)
+            state = self.update_workflow_state(
+                state,
+                plan_path=str(plan_in_worktree),
+                completed_stage="plan_copied",
+            )
+        else:
+            plan_in_worktree = self.ensure_plan_in_worktree(
+                repo, plan, names.worktree, names.slug
+            )
+            state = self.update_workflow_state(
+                state,
+                plan_path=str(plan_in_worktree),
+                completed_stage="plan_copied",
+            )
+        return state, plan_in_worktree
+
+    def ensure_skill_usage_baseline(
+        self, repo: Path, state: WorkflowState, names: Names
+    ) -> WorkflowState:
+        baseline = names.worktree / self.handoff_dir / "skill-usage-baseline.json"
+        if not baseline.exists():
+            self.snapshot_skill_usage_baseline(names.worktree, repo)
+            state = self.update_workflow_state(
+                state, completed_stage="skill_usage_baseline_snapshotted"
+            )
+        return state
+
+    def ensure_implementation_complete(
+        self, state: WorkflowState, names: Names, plan_in_worktree: Path
+    ) -> WorkflowState:
+        implementation_summary = (
+            names.worktree / self.handoff_dir / "implementation-summary.md"
+        )
+        if not implementation_summary.exists():
+            self.run_implementation(names.worktree, plan_in_worktree)
+            self.require_file(implementation_summary)
+            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
+            self.require_implementation_invariants(names.worktree, names.branch)
+            state = self.update_workflow_state(
+                state, completed_stage="implementation_complete"
+            )
+        else:
+            self.require_commits_since_base(
+                names.worktree, names.branch, "Implementation"
+            )
+            self.require_branch_changed_since_base(names.worktree, names.branch)
+        return state
+
+    def ensure_audit_complete(
+        self, state: WorkflowState, names: Names, plan_in_worktree: Path
+    ) -> WorkflowState:
+        audit_summary = names.worktree / self.handoff_dir / "audit-summary.md"
+        if not audit_summary.exists():
+            audit_head_before = self.head_rev(names.worktree)
+            state = self.update_workflow_state(
+                state, audit_head_before=audit_head_before
+            )
+            self.run_audit(names.worktree, plan_in_worktree)
+            self.require_file(audit_summary)
+            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
+            self.require_audit_invariants(
+                names.worktree, names.branch, audit_head_before
+            )
+            state = self.update_workflow_state(state, completed_stage="audit_complete")
+        else:
+            self.require_no_tracked_handoff_artifacts(names.worktree, names.branch)
+            self.require_clean_except_handoff(names.worktree, "Audit")
+            self.require_branch_changed_since_base(names.worktree, names.branch)
+        return state
+
+    def implementation_prompt(self, worktree: Path, plan_path: Path) -> str:
+        return f"""Use the implement-worktree skill.
 
 Implement the approved plan in `{self.rel(worktree, plan_path)}` inside this worktree.
 
@@ -446,12 +757,15 @@ Requirements:
 - Write `{self.handoff_dir.as_posix()}/implementation-summary.md` with plan path, branch/worktree, changed files, behavior changes, tests run, skipped checks, assumptions, and known risks.
 - Do not commit files under `{self.handoff_dir.as_posix()}/`; they are workflow artifacts and must remain untracked.
 """
+
+    def run_implementation(self, worktree: Path, plan_path: Path) -> None:
+        prompt = self.implementation_prompt(worktree, plan_path)
         output = worktree / self.handoff_dir / "implementation-final-response.md"
         self.harness_exec(worktree, prompt, output)
 
-    def run_audit(
-        self, worktree: Path, plan_path: Path, *, post_conflict: bool = False
-    ) -> None:
+    def audit_prompt(
+        self, worktree: Path, plan_path: Path, *, post_conflict: bool
+    ) -> str:
         summary = self.handoff_dir / (
             "post-conflict-audit-summary.md" if post_conflict else "audit-summary.md"
         )
@@ -460,7 +774,7 @@ Requirements:
             if post_conflict
             else "Commit audit fixes if changes are made."
         )
-        prompt = f"""Use the audit-worktree skill.
+        return f"""Use the audit-worktree skill.
 
 Fresh audit pass in this worktree.
 
@@ -474,6 +788,11 @@ Audit the actual diff against `{self.base}`. Fix confirmed issues and run releva
 Do not commit files under `{self.handoff_dir.as_posix()}/`; they are workflow artifacts and must remain untracked.
 Write `{summary.as_posix()}` before finishing.
 """
+
+    def run_audit(
+        self, worktree: Path, plan_path: Path, *, post_conflict: bool = False
+    ) -> None:
+        prompt = self.audit_prompt(worktree, plan_path, post_conflict=post_conflict)
         output = (
             worktree
             / self.handoff_dir
@@ -501,6 +820,15 @@ Write `{summary.as_posix()}` before finishing.
     def omp_prompt_file(self, output_file: Path) -> Path:
         return output_file.with_name(f"{output_file.stem}-prompt.md")
 
+    def omp_prompt_file_argument(self, prompt_file: Path) -> str:
+        prompt_path = str(prompt_file)
+        executable = CommandRunner.resolve_executable(self.config.harness)
+        if is_windows_executable_path(executable):
+            windows_path = wsl_drive_mount_to_windows_path(prompt_file)
+            if windows_path is not None:
+                prompt_path = windows_path
+        return f"@{prompt_path}"
+
     def omp_exec_args(self, prompt_file: Path) -> list[str]:
         args = [
             self.config.harness,
@@ -512,7 +840,7 @@ Write `{summary.as_posix()}` before finishing.
         ]
         if self.config.model:
             args.extend(["--model", self.config.model])
-        args.append(f"@{prompt_file}")
+        args.append(self.omp_prompt_file_argument(prompt_file))
         return args
 
     def codex_exec_args(self, cwd: Path, output_file: Path) -> list[str]:
@@ -574,16 +902,111 @@ Write `{summary.as_posix()}` before finishing.
             )
             raise FlowError(format_command_failure(result))
 
-    def finish(self, repo: Path, names: Names, plan_path: Path, title: str) -> None:
+    def ensure_integration_context(
+        self, feature_worktree: Path, integration_worktree: Path, plan_path: Path
+    ) -> None:
+        if not (
+            integration_worktree / self.handoff_dir / "implementation-summary.md"
+        ).exists():
+            self.copy_integration_context(
+                feature_worktree, integration_worktree, plan_path
+            )
+
+    def ensure_integration_worktree(
+        self, repo: Path, state: WorkflowState, names: Names, plan_path: Path
+    ) -> tuple[WorkflowState, Path]:
+        resumed = self.resume_recorded_integration_worktree(
+            repo, state, names, plan_path
+        )
+        if resumed is not None:
+            return resumed
+        restored = self.restore_recorded_integration_branch(
+            repo, state, names, plan_path
+        )
+        if restored is not None:
+            return restored
+        return self.create_integration_worktree(repo, state, names, plan_path)
+
+    def resume_recorded_integration_worktree(
+        self, repo: Path, state: WorkflowState, names: Names, plan_path: Path
+    ) -> tuple[WorkflowState, Path] | None:
+        if state.integration_worktree is None:
+            return None
+        integration_worktree = Path(state.integration_worktree)
+        if not integration_worktree.exists():
+            return None
+        self.runner.run(
+            ["git", "worktree", "repair", str(integration_worktree)],
+            repo,
+            check=False,
+        )
+        self.prepare_existing_worktree(integration_worktree)
+        if state.integration_branch is None:
+            branch = self.current_branch(integration_worktree)
+            if branch:
+                state = self.update_workflow_state(state, integration_branch=branch)
+        self.ensure_integration_context(names.worktree, integration_worktree, plan_path)
+        self.continue_log(integration_worktree, state.run_id)
+        return state, integration_worktree
+
+    def restore_recorded_integration_branch(
+        self, repo: Path, state: WorkflowState, names: Names, plan_path: Path
+    ) -> tuple[WorkflowState, Path] | None:
+        if state.integration_branch is None or not self.ref_exists(
+            repo, state.integration_branch
+        ):
+            return None
+        integration_branch = state.integration_branch
+        integration_worktree = (
+            Path(state.integration_worktree)
+            if state.integration_worktree is not None
+            else repo.parent / f"{repo.name}-integrate-{state.slug}"
+        )
+        if integration_worktree.exists():
+            result = self.runner.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                integration_worktree,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise FlowError(
+                    f"Integration worktree path already exists: {integration_worktree}"
+                )
+            self.runner.run(
+                ["git", "worktree", "repair", str(integration_worktree)],
+                repo,
+                check=False,
+            )
+        else:
+            self.runner.run(
+                [
+                    "git",
+                    "worktree",
+                    "add",
+                    str(integration_worktree),
+                    integration_branch,
+                ],
+                repo,
+            )
+        self.prepare_existing_worktree(integration_worktree)
+        self.ensure_integration_context(names.worktree, integration_worktree, plan_path)
+        self.continue_log(integration_worktree, state.run_id)
+        state = self.update_workflow_state(
+            state,
+            integration_branch=integration_branch,
+            integration_worktree=str(integration_worktree),
+            completed_stage="integration_worktree_created",
+        )
+        return state, integration_worktree
+
+    def create_integration_worktree(
+        self, repo: Path, state: WorkflowState, names: Names, plan_path: Path
+    ) -> tuple[WorkflowState, Path]:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         integration_branch = f"integration/{names.slug}-{stamp}"
         integration_worktree = (
             repo.parent / f"{repo.name}-integrate-{names.slug}-{stamp}"
         )
-
-        self.require_no_tracked_handoff_artifacts(repo, names.branch)
-        self.require_ready_for_integration(names.worktree, names.branch)
-        self.runner.run(["git", "fetch", "--all", "--prune"], repo)
         self.runner.run(
             [
                 "git",
@@ -596,11 +1019,30 @@ Write `{summary.as_posix()}` before finishing.
             ],
             repo,
         )
-        self.prepare_harness_permissions(integration_worktree / self.harness_dir)
-        self.ensure_dir(integration_worktree / self.handoff_dir)
-        self.prepare_harness_permissions(integration_worktree / self.harness_dir)
-        self.prepare_git_permissions(integration_worktree)
-        integration_plan = self.copy_integration_context(
+        self.prepare_new_worktree(integration_worktree)
+        self.copy_integration_context(names.worktree, integration_worktree, plan_path)
+        self.continue_log(integration_worktree, state.run_id)
+        state = self.update_workflow_state(
+            state,
+            integration_branch=integration_branch,
+            integration_worktree=str(integration_worktree),
+            completed_stage="integration_worktree_created",
+        )
+        return state, integration_worktree
+
+    def finish(
+        self, repo: Path, state: WorkflowState, names: Names, plan_path: Path
+    ) -> WorkflowState:
+        self.require_no_tracked_handoff_artifacts(repo, names.branch)
+        self.require_ready_for_integration(names.worktree, names.branch)
+        self.runner.run(["git", "fetch", "--all", "--prune"], repo)
+        state, integration_worktree = self.ensure_integration_worktree(
+            repo, state, names, plan_path
+        )
+        if state.integration_branch is None:
+            raise FlowError("Integration branch is missing from workflow state.")
+        integration_branch = state.integration_branch
+        integration_plan = self.integration_plan_path(
             names.worktree, integration_worktree, plan_path
         )
         feature_baseline = (
@@ -608,87 +1050,192 @@ Write `{summary.as_posix()}` before finishing.
         )
 
         integrated = False
+        archive_dir: Path | None = None
         try:
             skill_usage_restored = False
-            if self.config.merge_mode == "squash":
+            integration_has_commits = self.branch_has_commits_since_base(
+                integration_worktree, integration_branch
+            )
+            if self.has_unmerged_paths(integration_worktree):
+                unmerged = self.unmerged_paths(integration_worktree)
+                if unmerged:
+                    self.restore_integration_skill_usage_to_head(
+                        integration_worktree, repo
+                    )
+                    skill_usage_restored = True
+            elif (
+                self.has_non_handoff_changes(integration_worktree)
+                and not integration_has_commits
+            ):
+                pass
+            elif integration_has_commits:
+                pass
+            elif state.merge_mode == "squash":
                 merge = self.runner.run(
                     ["git", "merge", "--squash", names.branch],
                     integration_worktree,
                     check=False,
                 )
-                if merge.returncode != 0:
-                    if merge.timed_out:
-                        self.log_command_result(
-                            "command_failure",
-                            merge,
-                            phase="finish",
-                            step="squash_merge",
-                        )
-                        raise FlowError(format_command_failure(merge))
-                    unmerged = self.unmerged_paths(integration_worktree)
-                    if unmerged:
-                        self.restore_integration_skill_usage_to_head(
-                            integration_worktree, repo
-                        )
-                        skill_usage_restored = True
-                    if unmerged and not self.only_skill_usage_unmerged(unmerged):
-                        self.resolve_conflict(
-                            integration_worktree, names, integration_plan
-                        )
-                    elif not unmerged:
-                        self.log_command_result(
-                            "command_failure",
-                            merge,
-                            phase="finish",
-                            step="squash_merge",
-                        )
-                        raise FlowError(format_command_failure(merge))
+                skill_usage_restored = (
+                    self.handle_merge_failure(
+                        merge, integration_worktree, repo, "squash_merge"
+                    )
+                    or skill_usage_restored
+                )
             else:
                 merge = self.runner.run(
                     ["git", "merge", "--no-ff", "--no-commit", names.branch],
                     integration_worktree,
                     check=False,
                 )
-                if merge.returncode != 0:
-                    if merge.timed_out:
-                        self.log_command_result(
-                            "command_failure",
-                            merge,
-                            phase="finish",
-                            step="no_ff_merge",
-                        )
-                        raise FlowError(format_command_failure(merge))
-                    unmerged = self.unmerged_paths(integration_worktree)
-                    if unmerged:
-                        self.restore_integration_skill_usage_to_head(
-                            integration_worktree, repo
-                        )
-                        skill_usage_restored = True
-                    if unmerged and not self.only_skill_usage_unmerged(unmerged):
-                        self.resolve_conflict(
-                            integration_worktree, names, integration_plan
-                        )
-                    elif not unmerged:
-                        self.log_command_result(
-                            "command_failure",
-                            merge,
-                            phase="finish",
-                            step="no_ff_merge",
-                        )
-                        raise FlowError(format_command_failure(merge))
+                skill_usage_restored = (
+                    self.handle_merge_failure(
+                        merge, integration_worktree, repo, "no_ff_merge"
+                    )
+                    or skill_usage_restored
+                )
+
+            conflict_summary = (
+                integration_worktree
+                / self.handoff_dir
+                / "conflict-resolution-summary.md"
+            )
+            post_conflict_summary = (
+                integration_worktree
+                / self.handoff_dir
+                / "post-conflict-audit-summary.md"
+            )
+            self.resolve_non_skill_conflicts(
+                integration_worktree, names, integration_plan, conflict_summary
+            )
+            self.run_post_conflict_audit_if_needed(
+                integration_worktree,
+                integration_plan,
+                conflict_summary,
+                post_conflict_summary,
+            )
 
             if not skill_usage_restored:
                 self.restore_integration_skill_usage_to_head(integration_worktree, repo)
+
+            state = self.commit_integration_if_needed(
+                state,
+                names,
+                integration_worktree,
+                integration_branch,
+                feature_baseline,
+                repo,
+            )
+            state = self.fast_forward_base_if_needed(
+                repo, state, names, integration_branch
+            )
+            state, archive_dir = self.archive_successful_handoff(
+                repo, state, integration_worktree
+            )
+            integrated = True
+        finally:
+            if (
+                integrated
+                and not self.config.keep_worktrees
+                and archive_dir is not None
+            ):
+                state = self.cleanup_successful_worktrees(
+                    repo,
+                    state,
+                    integration_worktree,
+                    integration_branch,
+                    names,
+                    archive_dir,
+                )
+        if archive_dir is not None:
+            self.commit_worktree_flow_artifacts_if_needed(repo, state.plan_title)
+        return state
+
+    def handle_merge_failure(
+        self, result: CommandResult, integration_worktree: Path, repo: Path, step: str
+    ) -> bool:
+        if result.returncode == 0:
+            return False
+        if result.timed_out:
+            self.log_command_result(
+                "command_failure", result, phase="finish", step=step
+            )
+            raise FlowError(format_command_failure(result))
+        unmerged = self.unmerged_paths(integration_worktree)
+        if unmerged:
+            self.restore_integration_skill_usage_to_head(integration_worktree, repo)
+            return True
+        self.log_command_result("command_failure", result, phase="finish", step=step)
+        raise FlowError(format_command_failure(result))
+
+    def resolve_non_skill_conflicts(
+        self,
+        integration_worktree: Path,
+        names: Names,
+        integration_plan: Path,
+        conflict_summary: Path,
+    ) -> None:
+        if self.has_unmerged_paths(integration_worktree):
+            unmerged = self.unmerged_paths(integration_worktree)
+            if not self.only_skill_usage_unmerged(unmerged):
+                if not conflict_summary.exists():
+                    self.run_conflict_resolution(
+                        integration_worktree, names, integration_plan
+                    )
+                if self.has_unmerged_paths(integration_worktree):
+                    raise FlowError("Merge conflicts remain after conflict resolution.")
+            if self.has_unmerged_paths(integration_worktree):
+                raise FlowError("Merge conflicts remain after conflict resolution.")
+
+    def run_post_conflict_audit_if_needed(
+        self,
+        integration_worktree: Path,
+        integration_plan: Path,
+        conflict_summary: Path,
+        post_conflict_summary: Path,
+    ) -> None:
+        if conflict_summary.exists() and not post_conflict_summary.exists():
+            self.run_post_conflict_audit(integration_worktree, integration_plan)
+
+    def commit_integration_if_needed(
+        self,
+        state: WorkflowState,
+        names: Names,
+        integration_worktree: Path,
+        integration_branch: str,
+        feature_baseline: Path,
+        repo: Path,
+    ) -> WorkflowState:
+        if not self.branch_has_commits_since_base(
+            integration_worktree, integration_branch
+        ):
             self.consolidate_skill_usage(
                 names.worktree, integration_worktree, repo, feature_baseline
             )
-            self.stage_integration_changes(integration_worktree)
-            self.runner.run(
-                ["git", "commit", "-m", f"Harness: {title}"], integration_worktree
+            state = self.update_workflow_state(
+                state, completed_stage="skill_usage_consolidated"
             )
+            self.stage_integration_changes(integration_worktree)
+            state = self.update_workflow_state(
+                state, completed_stage="integration_changes_staged"
+            )
+            if not self.has_staged_non_handoff_changes(integration_worktree):
+                raise FlowError("No integration changes to commit.")
+            self.runner.run(
+                ["git", "commit", "-m", f"Harness: {state.plan_title}"],
+                integration_worktree,
+            )
+            state = self.update_workflow_state(
+                state, completed_stage="integration_committed"
+            )
+        return state
 
-            self.archive_handoff(
-                repo, integration_worktree, names.run_id, "integration"
+    def fast_forward_base_if_needed(
+        self, repo: Path, state: WorkflowState, names: Names, integration_branch: str
+    ) -> WorkflowState:
+        if not self.base_contains_branch(repo, integration_branch):
+            self.prepare_primary_for_fast_forward(
+                repo, integration_branch, names.run_id
             )
             self.runner.run(["git", "switch", self.base], repo)
             fast_forward = self.runner.run(
@@ -704,12 +1251,59 @@ Write `{summary.as_posix()}` before finishing.
                     step="fast_forward_merge",
                 )
                 raise FlowError(format_command_failure(fast_forward))
-            integrated = True
-        finally:
-            if integrated and not self.config.keep_worktrees:
-                self.cleanup(repo, integration_worktree, integration_branch, names)
+            state = self.update_workflow_state(
+                state, completed_stage="base_fast_forwarded"
+            )
+        return state
 
-    def resolve_conflict(
+    def archive_successful_handoff(
+        self, repo: Path, state: WorkflowState, integration_worktree: Path
+    ) -> tuple[WorkflowState, Path]:
+        archive_dir = self.archive_handoff(repo, integration_worktree, state.run_id)
+        state = self.update_workflow_state(state, completed_stage="handoff_archived")
+        print(f"Handoff archive: {archive_dir}")
+        return state, archive_dir
+
+    def commit_worktree_flow_artifacts_if_needed(
+        self, repo: Path, plan_title: str
+    ) -> None:
+        self.runner.run(["git", "switch", self.base], repo)
+        rel = self.worktree_flow_dir.as_posix()
+        self.runner.run(["git", "add", "-A", "--", rel], repo)
+        diff = self.runner.run(
+            ["git", "diff", "--cached", "--quiet", "--", rel],
+            repo,
+            check=False,
+        )
+        if diff.returncode == 0:
+            return
+        if diff.returncode != 1:
+            raise FlowError(format_command_failure(diff))
+        self.runner.run(
+            ["git", "commit", "-m", f"Harness artifacts: {plan_title}", "--", rel],
+            repo,
+        )
+
+    def cleanup_successful_worktrees(
+        self,
+        repo: Path,
+        state: WorkflowState,
+        integration_worktree: Path,
+        integration_branch: str,
+        names: Names,
+        archive_dir: Path,
+    ) -> WorkflowState:
+        self.cleanup(repo, integration_worktree, integration_branch, names)
+        state = replace(state, completed_stage="cleanup_complete")
+        self.save_workflow_state_file(archive_dir / WORKFLOW_STATE_FILENAME, state)
+        self.log_file = archive_dir / "workflow.jsonl"
+        self.log_event(
+            "workflow_state_updated",
+            completed_stage=state.completed_stage,
+        )
+        return state
+
+    def run_conflict_resolution(
         self, integration_worktree: Path, names: Names, plan_path: Path
     ) -> None:
         context_path = (
@@ -718,7 +1312,22 @@ Write `{summary.as_posix()}` before finishing.
         self.write_text(
             context_path, self.conflict_context(integration_worktree, names, plan_path)
         )
-        prompt = f"""Use the merge-conflict-resolver skill.
+        prompt = self.conflict_resolution_prompt(integration_worktree, names, plan_path)
+        self.harness_exec(
+            integration_worktree,
+            prompt,
+            integration_worktree
+            / self.handoff_dir
+            / "conflict-resolution-final-response.md",
+        )
+        self.require_file(
+            integration_worktree / self.handoff_dir / "conflict-resolution-summary.md"
+        )
+
+    def conflict_resolution_prompt(
+        self, integration_worktree: Path, names: Names, plan_path: Path
+    ) -> str:
+        return f"""Use the merge-conflict-resolver skill.
 
 Resolve merge conflicts in this integration worktree.
 
@@ -731,20 +1340,29 @@ Read:
 Preserve latest `{self.base}` behavior unless the approved plan explicitly supersedes it. Keep the resolution narrow, remove all conflict markers, run focused checks if possible, and write `{self.handoff_dir.as_posix()}/conflict-resolution-summary.md`.
 Do not commit.
 """
-        self.harness_exec(
-            integration_worktree,
-            prompt,
-            integration_worktree
-            / self.handoff_dir
-            / "conflict-resolution-final-response.md",
-        )
-        self.require_file(
-            integration_worktree / self.handoff_dir / "conflict-resolution-summary.md"
-        )
+
+    def run_post_conflict_audit(
+        self, integration_worktree: Path, plan_path: Path
+    ) -> None:
         self.run_audit(integration_worktree, plan_path, post_conflict=True)
         self.require_file(
             integration_worktree / self.handoff_dir / "post-conflict-audit-summary.md"
         )
+
+    def resolve_conflict(
+        self, integration_worktree: Path, names: Names, plan_path: Path
+    ) -> None:
+        self.run_conflict_resolution(integration_worktree, names, plan_path)
+        self.run_post_conflict_audit(integration_worktree, plan_path)
+
+    def integration_plan_path(
+        self, feature_worktree: Path, integration_worktree: Path, plan_path: Path
+    ) -> Path:
+        try:
+            rel_plan = plan_path.resolve().relative_to(feature_worktree.resolve())
+        except ValueError:
+            rel_plan = Path("docs") / "plans" / plan_path.name
+        return integration_worktree / rel_plan
 
     def copy_integration_context(
         self, feature_worktree: Path, integration_worktree: Path, plan_path: Path
@@ -757,20 +1375,16 @@ Do not commit.
                 if item.is_file():
                     self.copy_file(item, dest_handoff / item.name)
 
-        try:
-            rel_plan = plan_path.resolve().relative_to(feature_worktree.resolve())
-        except ValueError:
-            rel_plan = Path("docs") / "plans" / plan_path.name
-        dest_plan = integration_worktree / rel_plan
+        dest_plan = self.integration_plan_path(
+            feature_worktree, integration_worktree, plan_path
+        )
         self.ensure_dir(dest_plan.parent)
         if plan_path.exists():
             self.copy_file(plan_path, dest_plan)
         return dest_plan
 
-    def archive_handoff(
-        self, repo: Path, worktree: Path, run_id: str, stage: str
-    ) -> Path:
-        archive_dir = repo / self.harness_dir / "worktree-flow" / run_id / stage
+    def archive_handoff(self, repo: Path, worktree: Path, run_id: str) -> Path:
+        archive_dir = repo / self.harness_dir / "worktree-flow" / run_id
         self.ensure_dir(archive_dir)
         source = worktree / self.handoff_dir
         if source.exists():
@@ -790,8 +1404,8 @@ Do not commit.
     def skill_usage_script(self, worktree: Path) -> Path:
         return worktree / self.harness_dir / "scripts" / "skill-usage-manager.py"
 
-    def skill_usage_ledger(self, repo_root: Path) -> Path:
-        for harness_dir in (
+    def skill_usage_harness_dir_candidates(self) -> tuple[str, ...]:
+        return (
             self.harness_dir.as_posix(),
             ".harness",
             ".codex",
@@ -799,7 +1413,10 @@ Do not commit.
             ".claude",
             ".omp",
             ".agents",
-        ):
+        )
+
+    def skill_usage_ledger(self, repo_root: Path) -> Path:
+        for harness_dir in self.skill_usage_harness_dir_candidates():
             candidate = repo_root / harness_dir
             if candidate.exists():
                 return candidate / "skill-usage.json"
@@ -896,6 +1513,87 @@ Do not commit.
             integration_worktree,
         )
 
+    def prepare_primary_for_fast_forward(
+        self, repo: Path, integration_branch: str, run_id: str
+    ) -> None:
+        for rel in self.untracked_handoff_paths(repo):
+            if not self.tree_has_path(repo, integration_branch, rel):
+                continue
+            path = repo / rel
+            if self.path_matches_tree_blob(repo, integration_branch, rel):
+                if not self.runner.dry_run:
+                    path.unlink(missing_ok=True)
+                self.log_event(
+                    "primary_untracked_handoff_removed",
+                    path=rel,
+                    integration_branch=integration_branch,
+                )
+                continue
+            archive_path = self.unique_untracked_archive_path(repo, run_id, rel)
+            if not self.runner.dry_run:
+                self.ensure_dir(archive_path.parent)
+                shutil.move(str(path), str(archive_path))
+            self.log_event(
+                "primary_untracked_handoff_archived",
+                path=rel,
+                archive_path=str(archive_path),
+                integration_branch=integration_branch,
+            )
+
+    def untracked_handoff_paths(self, worktree: Path) -> list[str]:
+        result = self.runner.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            worktree,
+        )
+        paths: list[str] = []
+        for entry in result.stdout.split("\0"):
+            if not entry or entry[:2] != "??":
+                continue
+            rel = entry[3:].replace("\\", "/")
+            if self.path_is_handoff(rel):
+                paths.append(rel)
+        return paths
+
+    def tree_has_path(self, worktree: Path, treeish: str, rel: str) -> bool:
+        return (
+            self.runner.run(
+                ["git", "cat-file", "-e", f"{treeish}:{rel}"],
+                worktree,
+                check=False,
+            ).returncode
+            == 0
+        )
+
+    def path_matches_tree_blob(self, worktree: Path, treeish: str, rel: str) -> bool:
+        tree_hash = self.runner.run(
+            ["git", "rev-parse", f"{treeish}:{rel}"],
+            worktree,
+            check=False,
+        )
+        if tree_hash.returncode != 0:
+            return False
+        worktree_hash = self.runner.run(
+            ["git", "hash-object", "--", rel],
+            worktree,
+            check=False,
+        )
+        return (
+            worktree_hash.returncode == 0
+            and worktree_hash.stdout.strip() == tree_hash.stdout.strip()
+        )
+
+    def unique_untracked_archive_path(self, repo: Path, run_id: str, rel: str) -> Path:
+        dest = repo / self.handoff_dir / "pre-fast-forward-untracked" / run_id / rel
+        if not dest.exists():
+            return dest
+        for suffix in range(1, 1000):
+            candidate = dest.with_name(f"{dest.name}.{suffix}")
+            if not candidate.exists():
+                return candidate
+        raise FlowError(
+            f"Could not choose archive path for untracked workflow file: {rel}"
+        )
+
     def has_unmerged_paths(self, worktree: Path) -> bool:
         return bool(self.unmerged_paths(worktree))
 
@@ -910,15 +1608,7 @@ Do not commit.
     def only_skill_usage_unmerged(self, paths: Sequence[str]) -> bool:
         expected = {
             f"{harness_dir}/skill-usage.json"
-            for harness_dir in (
-                self.harness_dir.as_posix(),
-                ".harness",
-                ".codex",
-                ".opencode",
-                ".claude",
-                ".omp",
-                ".agents",
-            )
+            for harness_dir in self.skill_usage_harness_dir_candidates()
         }
         return bool(paths) and all(
             path.replace("\\", "/") in expected for path in paths
@@ -961,6 +1651,17 @@ Do not commit.
         raw = result.stdout.strip()
         return int(raw) if raw else 0
 
+    def branch_has_commits_since_base(self, worktree: Path, branch: str) -> bool:
+        return self.commit_count_since_base(worktree, branch) > 0
+
+    def base_contains_branch(self, repo: Path, branch: str) -> bool:
+        result = self.runner.run(
+            ["git", "merge-base", "--is-ancestor", branch, self.base],
+            repo,
+            check=False,
+        )
+        return result.returncode == 0
+
     def require_commits_since_base(
         self, worktree: Path, branch: str, phase_name: str
     ) -> None:
@@ -998,6 +1699,19 @@ Do not commit.
             if line.strip() and not self.status_line_is_handoff(line)
         ]
 
+    def has_non_handoff_changes(self, worktree: Path) -> bool:
+        return bool(self.non_handoff_status(worktree))
+
+    def has_staged_non_handoff_changes(self, worktree: Path) -> bool:
+        result = self.runner.run(
+            ["git", "diff", "--cached", "--name-only"],
+            worktree,
+        )
+        return any(
+            line.strip() and not self.path_is_handoff(line.strip())
+            for line in result.stdout.splitlines()
+        )
+
     def status_line_is_handoff(self, line: str) -> bool:
         path_text = line[3:].strip()
         paths = [part.strip() for part in path_text.split(" -> ")]
@@ -1006,7 +1720,16 @@ Do not commit.
     def path_is_handoff(self, path: str) -> bool:
         normalized = path.replace("\\", "/").strip('"')
         handoff = self.handoff_dir.as_posix().rstrip("/")
-        return normalized == handoff or normalized.startswith(f"{handoff}/")
+        harness = self.harness_dir.as_posix().rstrip("/")
+        if normalized == handoff or normalized.startswith(f"{handoff}/"):
+            return True
+        if normalized == f"{harness}/skill-usage.json":
+            return True
+        if normalized == f"{harness}/worktree-flow" or normalized.startswith(
+            f"{harness}/worktree-flow/"
+        ):
+            return True
+        return False
 
     def require_clean_except_handoff(self, worktree: Path, phase_name: str) -> None:
         status = self.non_handoff_status(worktree)
@@ -1245,14 +1968,32 @@ foreach ($item in $items) {
         # only after the integration branch has fast-forwarded successfully.
         self.runner.run(["git", "branch", "-D", names.branch], repo, check=False)
 
-    def start_log(self, repo: Path, run_id: str) -> None:
+    def workflow_log_file(self, worktree: Path) -> Path:
+        return worktree / self.handoff_dir / "workflow.jsonl"
+
+    def start_log(self, worktree: Path, run_id: str) -> None:
         if self.runner.dry_run:
             return
-        self.log_file = (
-            repo / self.harness_dir / "worktree-flow" / run_id / "workflow.jsonl"
-        )
+        self.log_file = self.workflow_log_file(worktree)
         ensure_dir(self.log_file.parent)
-        self.log_event("workflow_log_started", log_file=str(self.log_file))
+        self.log_event(
+            "workflow_log_started",
+            log_file=str(self.log_file),
+            run_id=run_id,
+        )
+
+    def continue_log(self, worktree: Path, run_id: str) -> None:
+        if self.runner.dry_run:
+            return
+        previous = self.log_file
+        self.log_file = self.workflow_log_file(worktree)
+        ensure_dir(self.log_file.parent)
+        self.log_event(
+            "workflow_log_continued",
+            log_file=str(self.log_file),
+            previous_log_file=str(previous) if previous is not None else None,
+            run_id=run_id,
+        )
 
     def log_event(self, event: str, **fields: object) -> None:
         if self.log_file is None:
@@ -1304,6 +2045,28 @@ def build_parser(
     )
     parser.add_argument("--plan", required=True, help="Approved Markdown plan file.")
     parser.add_argument(
+        "--resume", action="store_true", help="Resume an existing worktree-flow run."
+    )
+    parser.add_argument(
+        "--worktree",
+        help="Existing feature worktree to resume; required with --resume.",
+    )
+    parser.add_argument(
+        "--branch", help="Feature branch for --resume. Defaults to the worktree branch."
+    )
+    parser.add_argument(
+        "--run-id",
+        help="Workflow run id for legacy resumes without workflow-state.json.",
+    )
+    parser.add_argument(
+        "--integration-worktree",
+        help="Existing integration worktree for legacy resume after integration started.",
+    )
+    parser.add_argument(
+        "--integration-branch",
+        help="Existing integration branch for legacy resume after integration started.",
+    )
+    parser.add_argument(
         "--repo", default=".", help="Repository root. Defaults to current directory."
     )
     parser.add_argument(
@@ -1343,6 +2106,37 @@ def build_parser(
     return parser
 
 
+def resume_only_values(args: argparse.Namespace) -> tuple[object, ...]:
+    return (
+        args.worktree,
+        args.branch,
+        args.run_id,
+        args.integration_worktree,
+        args.integration_branch,
+    )
+
+
+def flow_config_from_args(args: argparse.Namespace) -> FlowConfig:
+    harness_dir = Path(args.harness_dir)
+    return FlowConfig(
+        repo=Path(args.repo).expanduser().resolve(),
+        plan=Path(args.plan).expanduser().resolve(),
+        base=args.base,
+        harness=args.harness,
+        command_timeout_seconds=args.command_timeout_seconds,
+        harness_dir=harness_dir,
+        model=args.model,
+        merge_mode=args.merge_mode,
+        keep_worktrees=args.keep_worktrees,
+    )
+
+
+def integration_worktree_arg(value: str | None) -> Path | None:
+    if not value:
+        return None
+    return Path(value).expanduser().resolve()
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -1354,26 +2148,38 @@ def main(
         default_harness_dir=default_harness_dir,
     )
     args = parser.parse_args(argv)
-    harness_dir = Path(args.harness_dir)
-    config = FlowConfig(
-        repo=Path(args.repo).expanduser().resolve(),
-        plan=Path(args.plan).expanduser().resolve(),
-        base=args.base,
-        harness=args.harness,
-        command_timeout_seconds=args.command_timeout_seconds,
-        harness_dir=harness_dir,
-        model=args.model,
-        merge_mode=args.merge_mode,
-        keep_worktrees=args.keep_worktrees,
-    )
+    if args.resume and not args.worktree:
+        parser.error("--worktree is required with --resume")
+    resume_only_args = resume_only_values(args)
+    if not args.resume and any(value is not None for value in resume_only_args):
+        parser.error("resume-only arguments require --resume")
+
+    config = flow_config_from_args(args)
     try:
-        HarnessWorktreeFlow(
+        flow = HarnessWorktreeFlow(
             config,
             CommandRunner(
                 args.dry_run,
                 command_timeout_seconds=config.command_timeout_seconds,
             ),
-        ).run()
+        )
+        if args.resume:
+            repo = flow.git_root(config.repo.resolve())
+            plan = config.plan.resolve()
+            flow.validate(repo, plan)
+            flow.resume(
+                repo=repo,
+                plan=plan,
+                worktree=Path(args.worktree).expanduser().resolve(),
+                branch=args.branch,
+                run_id=args.run_id,
+                integration_worktree=integration_worktree_arg(
+                    args.integration_worktree
+                ),
+                integration_branch=args.integration_branch,
+            )
+        else:
+            flow.run()
     except FlowError as exc:
         print(str(exc), file=sys.stderr)
         return 1

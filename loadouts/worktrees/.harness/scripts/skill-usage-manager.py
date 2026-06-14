@@ -25,8 +25,11 @@ HARNESS_DIR = Path(Path(__file__).resolve().parent.parent.name)
 if not HARNESS_DIR.name.startswith("."):
     HARNESS_DIR = Path(".harness")
 LEGACY_HARNESS_DIRS = (".codex", ".opencode", ".claude", ".omp", ".agents")
-KNOWN_HARNESS_DIRS = tuple(dict.fromkeys((HARNESS_DIR.as_posix(), ".harness", *LEGACY_HARNESS_DIRS)))
+KNOWN_HARNESS_DIRS = tuple(
+    dict.fromkeys((HARNESS_DIR.as_posix(), ".harness", *LEGACY_HARNESS_DIRS))
+)
 REPO_SKILL_DIRS = tuple(f"{harness_dir}/skills" for harness_dir in KNOWN_HARNESS_DIRS)
+REPO_SCOPE_KEY = "repo"
 DEFAULT_THRESHOLD = 100
 DEFAULT_MIN_ACTIVE = 8
 DEFAULT_PINNED_USER = {
@@ -151,6 +154,51 @@ def repo_root_for_local_skills_dir(
     return None
 
 
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def is_loadout_skills_dir(repo_root: Path, path: Path) -> bool:
+    try:
+        rel = path.relative_to(repo_root / "loadouts")
+    except ValueError:
+        return False
+    return (
+        len(rel.parts) >= 3
+        and rel.parts[-1] == "skills"
+        and rel.parts[-2] in KNOWN_HARNESS_DIRS
+    )
+
+
+def repo_skills_dir(repo_root: Path, requested: Path | None = None) -> Path:
+    repo_root = repo_root.expanduser().resolve()
+    active = requested.expanduser().resolve() if requested is not None else None
+    known_dirs = [(repo_root / rel).resolve() for rel in REPO_SKILL_DIRS]
+
+    if active is not None:
+        for skills_dir in known_dirs:
+            if is_relative_to(active, skills_dir):
+                return skills_dir
+        if is_loadout_skills_dir(repo_root, active):
+            return active
+        if (active / "SKILL.md").exists():
+            return active.parent
+        if active.name == "SKILL.md":
+            return active.parent.parent
+
+    harness_skills = (repo_root / HARNESS_DIR / "skills").resolve()
+    if harness_skills.exists():
+        return harness_skills
+    for skills_dir in known_dirs:
+        if skills_dir.exists():
+            return skills_dir
+    return harness_skills
+
+
 def make_root(
     scope: str, skills_dir: Path | None = None, repo: Path | None = None
 ) -> SkillRoot:
@@ -168,12 +216,11 @@ def make_root(
 
     active = skills_dir.expanduser().resolve() if skills_dir else None
     repo_root = infer_repo_root_from_skills_dir(active or (repo or Path.cwd()), repo)
-    if active is None:
-        raise ValueError("repo scope requires a concrete skills directory")
+    normalized_skills_dir = repo_skills_dir(repo_root, active)
     return SkillRoot(
         scope="repo",
-        skills_dir=active,
-        archive_dir=active.parent / "skills.archive",
+        skills_dir=normalized_skills_dir,
+        archive_dir=normalized_skills_dir.parent / "skills.archive",
         ledger_path=repo_ledger_path(repo_root),
         repo_root=repo_root,
     )
@@ -199,10 +246,12 @@ def discover_roots(args: argparse.Namespace, scopes: Iterable[str]) -> list[Skil
         if args.repo_skills_dir:
             candidates = [Path(args.repo_skills_dir).expanduser().resolve()]
         else:
-            candidates = [(repo_root / rel).resolve() for rel in REPO_SKILL_DIRS]
+            candidates = [repo_skills_dir(repo_root)]
             if args.include_loadout_templates:
                 for harness_dir in KNOWN_HARNESS_DIRS:
-                    candidates.extend((repo_root / "loadouts").glob(f"*/{harness_dir}/skills"))
+                    candidates.extend(
+                        (repo_root / "loadouts").glob(f"*/{harness_dir}/skills")
+                    )
 
         for candidate in candidates:
             if candidate.exists():
@@ -218,10 +267,14 @@ def scope_names(scope: str) -> list[str]:
 
 
 def root_key(root: SkillRoot) -> str:
-    return f"{root.scope}:{canonical(root.skills_dir)}"
+    if root.scope == "repo":
+        return REPO_SCOPE_KEY
+    return f"user:{canonical(root.skills_dir)}"
 
 
 def ensure_scope(data: dict[str, Any], root: SkillRoot) -> dict[str, Any]:
+    if root.scope == "repo":
+        collapse_repo_scopes(data, root)
     scopes = data.setdefault("scopes", {})
     key = root_key(root)
     scope_data = scopes.setdefault(
@@ -332,11 +385,19 @@ def merge_skill_metadata(
         )
     merged["load_count"] = load_count
 
-    first_seen = [value for value in (existing.get("first_seen"), incoming.get("first_seen")) if value]
+    first_seen = [
+        value
+        for value in (existing.get("first_seen"), incoming.get("first_seen"))
+        if value
+    ]
     if first_seen:
         merged["first_seen"] = min(str(value) for value in first_seen)
 
-    last_seen = [value for value in (existing.get("last_seen"), incoming.get("last_seen")) if value]
+    last_seen = [
+        value
+        for value in (existing.get("last_seen"), incoming.get("last_seen"))
+        if value
+    ]
     if last_seen:
         merged["last_seen"] = max(str(value) for value in last_seen)
 
@@ -353,7 +414,75 @@ def merge_skill_metadata(
     return merged
 
 
+def reset_archive_metadata(entry: dict[str, Any]) -> None:
+    if entry.get("archived_at"):
+        return
+    entry["archived_at"] = None
+    entry.pop("archive_path", None)
+
+
+def rebuild_load_indexes(scope_data: dict[str, Any]) -> None:
+    running_total = 0
+    skills = scope_data.setdefault("skills", {})
+    for skill_name, entry in sorted(
+        skills.items(),
+        key=lambda item: (str(item[1].get("last_seen") or ""), item[0]),
+    ):
+        running_total += int(entry.get("load_count", 0))
+        entry["last_load_index"] = running_total
+
+
+def collapse_repo_scopes(data: dict[str, Any], root: SkillRoot) -> None:
+    scopes = data.setdefault("scopes", {})
+    repo_items = [
+        (key, scope_data)
+        for key, scope_data in scopes.items()
+        if isinstance(scope_data, dict)
+        and (
+            scope_data.get("scope") == "repo"
+            or key == REPO_SCOPE_KEY
+            or key.startswith("repo:")
+        )
+    ]
+    if not repo_items or all(key == REPO_SCOPE_KEY for key, _scope_data in repo_items):
+        return
+
+    merged_scope: dict[str, Any] = {
+        "scope": "repo",
+        "skills_dir": canonical(root.skills_dir),
+        "archive_dir": canonical(root.archive_dir),
+        "total_loads": 0,
+        "skills": {},
+    }
+    merged_skills = merged_scope["skills"]
+    for _key, legacy_scope in repo_items:
+        merged_scope["total_loads"] = int(merged_scope["total_loads"]) + int(
+            legacy_scope.get("total_loads", 0)
+        )
+        for skill_name, raw_entry in legacy_scope.get("skills", {}).items():
+            if not isinstance(raw_entry, dict):
+                continue
+            entry = dict(raw_entry)
+            entry["source_path"] = canonical(root.skills_dir / skill_name)
+            existing = merged_skills.get(skill_name, {})
+            merged = merge_skill_metadata(existing, entry)
+            reset_archive_metadata(merged)
+            merged_skills[skill_name] = merged
+
+    rebuild_load_indexes(merged_scope)
+    for key, _legacy_scope in repo_items:
+        if key != REPO_SCOPE_KEY:
+            scopes.pop(key, None)
+    scopes[REPO_SCOPE_KEY] = merged_scope
+
+
+def is_repo_scope_key(scope: str, key: str) -> bool:
+    return scope == "repo" or key == REPO_SCOPE_KEY or key.startswith("repo:")
+
+
 def normalized_scope_key(scope: str, skills_dir: str) -> str:
+    if scope == "repo":
+        return REPO_SCOPE_KEY
     return f"{scope}:{skills_dir}"
 
 
@@ -364,22 +493,33 @@ def normalize_ledger_for_consolidation(
     if "pinned" in data:
         normalized["pinned"] = data["pinned"]
 
+    target_repo_skills_dir = repo_skills_dir(target_repo)
+    repo_scopes_to_rebuild: set[str] = set()
     for key, raw_scope in data.get("scopes", {}).items():
         if not isinstance(raw_scope, dict):
             continue
         scope = str(raw_scope.get("scope") or key.split(":", 1)[0])
-        skills_dir = remap_canonical_path(
-            raw_scope.get("skills_dir", key.split(":", 1)[-1]),
-            source_repo,
-            target_repo,
-        )
-        archive_dir = remap_canonical_path(
-            raw_scope.get("archive_dir", ""), source_repo, target_repo
-        )
-        if not isinstance(skills_dir, str) or not skills_dir:
-            continue
+        if is_repo_scope_key(scope, key):
+            scope = "repo"
+            skills_dir = canonical(target_repo_skills_dir)
+            archive_dir = canonical(target_repo_skills_dir.parent / "skills.archive")
+        else:
+            skills_dir = remap_canonical_path(
+                raw_scope.get("skills_dir", key.split(":", 1)[-1]),
+                source_repo,
+                target_repo,
+            )
+            archive_dir = remap_canonical_path(
+                raw_scope.get("archive_dir", ""), source_repo, target_repo
+            )
+            if not isinstance(skills_dir, str) or not skills_dir:
+                continue
 
         target_key = normalized_scope_key(scope, skills_dir)
+        if scope == "repo" and (
+            key != REPO_SCOPE_KEY or target_key in normalized["scopes"]
+        ):
+            repo_scopes_to_rebuild.add(target_key)
         scope_data = normalized["scopes"].setdefault(
             target_key,
             {
@@ -401,7 +541,9 @@ def normalize_ledger_for_consolidation(
             if not isinstance(raw_entry, dict):
                 continue
             entry = dict(raw_entry)
-            if entry.get("source_path"):
+            if scope == "repo":
+                entry["source_path"] = canonical(target_repo_skills_dir / name)
+            elif entry.get("source_path"):
                 entry["source_path"] = remap_canonical_path(
                     entry["source_path"], source_repo, target_repo
                 )
@@ -411,6 +553,11 @@ def normalize_ledger_for_consolidation(
                 )
             existing = skills.get(name, {})
             skills[name] = merge_skill_metadata(existing, entry)
+
+    for scope_key in repo_scopes_to_rebuild:
+        scope_data = normalized["scopes"].get(scope_key)
+        if isinstance(scope_data, dict):
+            rebuild_load_indexes(scope_data)
 
     return normalized
 
@@ -452,7 +599,9 @@ def target_pins_for_scope(
 
 def consolidate(args: argparse.Namespace) -> int:
     source_repo = Path(args.source_repo).expanduser().resolve()
-    target_worktree = Path(args.target_worktree or args.target_repo).expanduser().resolve()
+    target_worktree = (
+        Path(args.target_worktree or args.target_repo).expanduser().resolve()
+    )
     target_repo = Path(args.target_repo).expanduser().resolve()
     source_data = normalize_ledger_for_consolidation(
         load_json(Path(args.source_ledger)), source_repo, target_repo
@@ -480,7 +629,9 @@ def consolidate(args: argparse.Namespace) -> int:
             if delta <= 0:
                 continue
 
-            target_scope["total_loads"] = int(target_scope.get("total_loads", 0)) + delta
+            target_scope["total_loads"] = (
+                int(target_scope.get("total_loads", 0)) + delta
+            )
             existing = target_skills.get(skill_name, {})
             new_count = int(existing.get("load_count", 0)) + delta
             merged = merge_skill_metadata(existing, source_entry, load_count=new_count)
