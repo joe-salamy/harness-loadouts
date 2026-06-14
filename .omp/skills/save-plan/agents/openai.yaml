@@ -1,4 +1,0 @@
-interface:
-  display_name: "Save Plan"
-  short_description: "Save an approved plan as Markdown for the worktree flow."
-  default_prompt: "Use $save-plan to save the approved plan as a Markdown file under docs/plans/ and return its relative path."
