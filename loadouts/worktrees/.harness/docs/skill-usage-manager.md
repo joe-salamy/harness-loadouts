@@ -28,6 +28,8 @@ The ledger is stored at:
 - User skills: `~/.<harness>/skill-usage.json` by default, or beside the provided user skills directory
 - Repo skills: `<repo>/.<harness>/skill-usage.json` if that harness directory exists, otherwise `<repo>/.skill-usage.json`
 
+Repo-scope entries are consolidated under the single ledger scope key `"repo"`, and `source_path` values are normalized to the active repo skills directory.
+
 ## User Maintenance
 
 Scan current usage:

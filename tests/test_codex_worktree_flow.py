@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import importlib.util
+from contextlib import redirect_stderr
 import json
 import shutil
 import subprocess
@@ -562,18 +564,18 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             ):
                 subject.validate(repo, plan)
 
-    def test_plan_inside_repo_uses_same_relative_path(self) -> None:
+    def test_plan_inside_repo_is_copied_to_workflow_dir(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             worktree = Path(temp) / "repo-feature"
             plan = repo / "docs" / "plans" / "p.md"
-            target = worktree / "docs" / "plans" / "p.md"
+            target = worktree / ".codex" / "worktree-flow" / "plan" / "plan.md"
+            repo.mkdir()
             plan.parent.mkdir(parents=True)
-            target.parent.mkdir(parents=True)
             plan.write_text("# Plan", encoding="utf-8")
-            target.write_text("# Plan", encoding="utf-8")
             actual = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "plan")
             self.assertEqual(actual, target)
+            self.assertEqual(actual.read_text(encoding="utf-8"), "# Plan")
 
     def test_dry_run_plan_copy_does_not_mutate_filesystem(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -588,7 +590,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 self.config(repo, plan), FakeRunner(dry_run=True)
             ).ensure_plan_in_worktree(repo, plan, worktree, "external")
 
-            self.assertEqual(actual, worktree / "docs" / "plans" / "external.md")
+            self.assertEqual(actual, worktree / ".codex" / "worktree-flow" / "external" / "plan.md")
             self.assertFalse(actual.exists())
 
     def test_dry_run_archive_handoff_does_not_mutate_filesystem(self) -> None:
@@ -602,8 +604,9 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
 
             archive = flow.HarnessWorktreeFlow(
                 self.config(repo, repo / "plan.md"), FakeRunner(dry_run=True)
-            ).archive_handoff(repo, worktree, "plan-run", "feature")
+            ).archive_handoff(repo, worktree, "plan-run")
 
+            self.assertEqual(archive, repo / ".codex" / "worktree-flow" / "plan-run")
             self.assertFalse(archive.exists())
 
     def test_prepare_harness_permissions_grants_sandbox_group_on_windows(self) -> None:
@@ -768,6 +771,8 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.require_implementation_invariants = lambda _worktree, _branch: None
             subject.head_rev = lambda _worktree: "before"
             subject.require_audit_invariants = lambda _worktree, _branch, _head: None
+            subject.require_commits_since_base = lambda *_args: None
+            subject.require_branch_changed_since_base = lambda *_args: None
             subject.unique_feature_names = lambda _repo, _slug: flow.Names(
                 "plan", "feature/plan", worktree, "plan-run"
             )
@@ -788,20 +793,14 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
 
             subject.stage_integration_changes(repo)
 
+            self.assertEqual(runner.calls[0][0], ("git", "add", "-A"))
             self.assertEqual(
-                runner.calls[0][0],
-                (
-                    "git",
-                    "add",
-                    "-A",
-                    "--",
-                    ".",
-                    ":(exclude).codex/handoff/**",
-                ),
+                runner.calls[1],
+                (("git", "reset", "HEAD", "--", ".codex/handoff"), repo, False),
             )
 
 
-    def test_tracked_handoff_artifacts_are_rejected(self) -> None:
+    def test_tracked_handoff_artifacts_warn(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp) / "repo"
             runner = FakeRunner(
@@ -819,8 +818,16 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             )
             subject = flow.HarnessWorktreeFlow(self.config(repo, repo / "plan.md"), runner)
 
-            with self.assertRaisesRegex(flow.FlowError, "Workflow handoff artifacts"):
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
                 subject.require_no_tracked_handoff_artifacts(repo, "feature/plan")
+
+            warning = stderr.getvalue()
+            self.assertIn(
+                "Warning: workflow handoff artifacts are tracked in feature/plan.",
+                warning,
+            )
+            self.assertIn(".codex/handoff/audit-summary.md", warning)
 
     def test_implementation_fails_when_no_commit_exists_after_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -1101,14 +1108,16 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.restore_integration_skill_usage_to_head = lambda *_args: events.append("restore")
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.update_workflow_state = lambda state, **changes: flow.replace(state, **changes)
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
+                self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                 flow.Names("plan", "feature/plan", feature, "plan-run"),
                 plan,
-                "Plan",
             )
 
             self.assertEqual(events, ["restore", "consolidate", "stage"])
@@ -1152,14 +1161,16 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.restore_integration_skill_usage_to_head = lambda *_args: None
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.update_workflow_state = lambda state, **changes: flow.replace(state, **changes)
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
+                self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                 flow.Names("plan", "feature/plan", feature, "plan-run"),
                 plan,
-                "Plan",
             )
 
             calls = [call[0] for call in subject.runner.calls]
@@ -1201,20 +1212,23 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 FailingSquashMergeRunner(unmerged_paths=".codex/skill-usage.json\n"),
             )
             subject.prepare_harness_permissions = lambda _path: None
-            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+            subject.run_conflict_resolution = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run for usage-only conflicts")
             )
             subject.restore_integration_skill_usage_to_head = lambda *_args: None
             subject.consolidate_skill_usage = lambda *_args: None
             subject.stage_integration_changes = lambda _worktree: None
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            subject.has_unmerged_paths = lambda _worktree: False
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
+            subject.update_workflow_state = lambda state, **changes: flow.replace(state, **changes)
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
+                self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                 flow.Names("plan", "feature/plan", feature, "plan-run"),
                 plan,
-                "Plan",
             )
 
     def test_conflict_restores_skill_usage_before_resolver(self) -> None:
@@ -1233,17 +1247,21 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.prepare_harness_permissions = lambda _path: None
             events: list[str] = []
             subject.restore_integration_skill_usage_to_head = lambda *_args: events.append("restore")
-            subject.resolve_conflict = lambda *_args: events.append("resolve")
+            subject.run_conflict_resolution = lambda *_args: events.append("resolve")
             subject.consolidate_skill_usage = lambda *_args: events.append("consolidate")
             subject.stage_integration_changes = lambda _worktree: events.append("stage")
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
+            unmerged_checks = iter([False, True, False, False])
+            subject.has_unmerged_paths = lambda _worktree: next(unmerged_checks)
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
+            subject.update_workflow_state = lambda state, **changes: flow.replace(state, **changes)
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
+                self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                 flow.Names("plan", "feature/plan", feature, "plan-run"),
                 plan,
-                "Plan",
             )
 
             self.assertEqual(events, ["restore", "resolve", "consolidate", "stage"])
@@ -1257,7 +1275,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             worktree.mkdir()
             plan.write_text("# External", encoding="utf-8")
             actual = flow.HarnessWorktreeFlow(self.config(repo, plan), FakeRunner()).ensure_plan_in_worktree(repo, plan, worktree, "external")
-            self.assertEqual(actual, worktree / "docs" / "plans" / "external.md")
+            self.assertEqual(actual, worktree / ".codex" / "worktree-flow" / "external" / "plan.md")
             self.assertEqual(actual.read_text(encoding="utf-8"), "# External")
 
     def test_harness_command_includes_model_and_output_file(self) -> None:
@@ -1287,7 +1305,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.start_log(repo, "plan-run")
             subject.harness_exec(worktree, "Secret prompt", output_file)
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = repo / ".codex" / "handoff" / "workflow.jsonl"
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1333,7 +1351,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(flow.FlowError, "exit code 42"):
                 subject.harness_exec(worktree, "Secret prompt", output_file)
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = repo / ".codex" / "handoff" / "workflow.jsonl"
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1380,7 +1398,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
                 subject.harness_exec(worktree, "Secret prompt", output_file)
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = repo / ".codex" / "handoff" / "workflow.jsonl"
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1420,6 +1438,8 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.require_implementation_invariants = lambda _worktree, _branch: None
             subject.head_rev = lambda _worktree: "before"
             subject.require_audit_invariants = lambda _worktree, _branch, _head: None
+            subject.require_commits_since_base = lambda *_args: None
+            subject.require_branch_changed_since_base = lambda *_args: None
             subject.require_ready_for_integration = lambda _worktree, _branch: None
             subject.unique_feature_names = lambda _repo, _slug: flow.Names("plan", "feature/plan", worktree, "plan-run")
             subject.validate = lambda _repo, _plan: None
@@ -1472,7 +1492,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(flow.CommandFailureError, "Command timed out"):
                 subject.run()
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = worktree / ".codex" / "handoff" / "workflow.jsonl"
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1579,17 +1599,19 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
             subject.prepare_harness_permissions = lambda _path: None
             subject.require_ready_for_integration = lambda _worktree, _branch: None
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
+            subject.base_contains_branch = lambda _repo, _branch: False
             subject.start_log(repo, "plan-run")
 
             with self.assertRaises(flow.FlowError):
                 subject.finish(
                     repo,
+                    self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                     flow.Names("plan", "feature/plan", feature, "plan-run"),
                     plan,
-                    "Plan",
                 )
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = subject.log_file
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1616,7 +1638,7 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 self.config(repo, plan), FailingSquashMergeRunner(unmerged_paths="")
             )
             subject.prepare_harness_permissions = lambda _path: None
-            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+            subject.run_conflict_resolution = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run")
             )
             subject.require_ready_for_integration = lambda _worktree, _branch: None
@@ -1625,12 +1647,12 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             with self.assertRaisesRegex(flow.FlowError, "merge --squash"):
                 subject.finish(
                     repo,
+                    self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                     flow.Names("plan", "feature/plan", feature, "plan-run"),
                     plan,
-                    "Plan",
                 )
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = subject.log_file
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1659,21 +1681,22 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 FailingSquashMergeRunner(unmerged_paths="app.py\n", timed_out=True),
             )
             subject.prepare_harness_permissions = lambda _path: None
-            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+            subject.run_conflict_resolution = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run after a timeout")
             )
             subject.require_ready_for_integration = lambda _worktree, _branch: None
+            subject.has_unmerged_paths = lambda _worktree: False
 
             subject.start_log(repo, "plan-run")
             with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
                 subject.finish(
                     repo,
+                    self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                     flow.Names("plan", "feature/plan", feature, "plan-run"),
                     plan,
-                    "Plan",
                 )
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = subject.log_file
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1702,21 +1725,22 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
                 FailingNoFfMergeRunner(unmerged_paths="app.py\n", timed_out=True),
             )
             subject.prepare_harness_permissions = lambda _path: None
-            subject.resolve_conflict = lambda *_args: (_ for _ in ()).throw(
+            subject.run_conflict_resolution = lambda *_args: (_ for _ in ()).throw(
                 AssertionError("resolver should not run after a timeout")
             )
             subject.require_ready_for_integration = lambda _worktree, _branch: None
+            subject.has_unmerged_paths = lambda _worktree: False
 
             subject.start_log(repo, "plan-run")
             with self.assertRaisesRegex(flow.FlowError, "Command timed out"):
                 subject.finish(
                     repo,
+                    self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                     flow.Names("plan", "feature/plan", feature, "plan-run"),
                     plan,
-                    "Plan",
                 )
 
-            log_file = repo / ".codex" / "worktree-flow" / "plan-run" / "workflow.jsonl"
+            log_file = subject.log_file
             records = [
                 json.loads(line)
                 for line in log_file.read_text(encoding="utf-8").splitlines()
@@ -1745,17 +1769,19 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             )
             resolved = []
             subject.prepare_harness_permissions = lambda _path: None
-            subject.resolve_conflict = lambda *_args: resolved.append(True)
+            subject.run_conflict_resolution = lambda *_args: resolved.append(True)
+            unmerged_checks = iter([False, True, False, False])
+            subject.has_unmerged_paths = lambda _worktree: next(unmerged_checks)
+            subject.has_staged_non_handoff_changes = lambda _worktree: True
             subject.archive_handoff = lambda *_args: repo / ".codex" / "archive"
             subject.require_ready_for_integration = lambda _worktree, _branch: None
 
             subject.finish(
                 repo,
+                self.workflow_state(feature, merge_mode=subject.config.merge_mode),
                 flow.Names("plan", "feature/plan", feature, "plan-run"),
                 plan,
-                "Plan",
             )
-
             self.assertEqual(resolved, [True])
 
     def test_parser_rejects_removed_yes_option(self) -> None:
@@ -1863,6 +1889,20 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
             merge_mode=merge_mode,
             keep_worktrees=False,
         )
+    def workflow_state(self, feature: Path, *, merge_mode: str = "squash", plan_title: str = "Plan") -> flow.WorkflowState:
+        return flow.WorkflowState(
+            run_id="plan-run",
+            slug="plan",
+            base="main",
+            plan_title=plan_title,
+            feature_branch="feature/plan",
+            feature_worktree=str(feature),
+            merge_mode=merge_mode,
+            plan_path=str(feature / "docs" / "plans" / "plan.md"),
+            completed_stage="audit_complete",
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

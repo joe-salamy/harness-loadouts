@@ -1,9 +1,6 @@
 # <harness> Worktree Flow
 
-`worktree-flow.py` is the single entrypoint for the repeatable part of the workflow after you have an approved plan. Select the target harness with `--harness` and `--harness-dir`:
-
-- Codex: `--harness codex --harness-dir .codex`
-- Oh My Pi: `--harness omp --harness-dir .omp`
+`worktree-flow.py` is installed under the target repo's active harness directory. `save-plan.py` is the OMP helper that copies the latest approved OMP plan to `.omp/worktree-flow/<slug>/plan.md` and prints the `worktree-flow.py` command.
 
 1. Creates a feature branch and Git worktree from `main`.
 2. Runs <harness> implementation in that worktree.
@@ -16,35 +13,45 @@
 
 ## Quick Start
 
-Create and approve a plan, save it as Markdown, then run the shared workflow with the desired harness settings.
+For OMP plan mode, first save the approved plan:
+
+```powershell
+python .\.omp\scripts\save-plan.py
+```
+
+It prints both `python` and `python3` commands; run the one appropriate for your shell.
 
 Codex:
 
 ```powershell
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex
+python .\.codex\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex
 ```
 
 Oh My Pi:
 
 ```powershell
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness omp --harness-dir .omp
+python .\.omp\scripts\worktree-flow.py --plan .omp\worktree-flow\my-plan\plan.md --harness omp --harness-dir .omp
 ```
 
 Common options:
 
 ```powershell
 # Show Git/<harness> commands without running them
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --dry-run
+python .\.codex\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --dry-run
 
 # Implement and audit, but stop before merging
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --merge-mode stop
+python .\.codex\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --merge-mode stop
 
 # Keep feature/integration worktrees after completion
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --keep-worktrees
+python .\.codex\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --keep-worktrees
 
 # Use a non-main base branch
-python .\.omp\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --base develop
+python .\.codex\scripts\worktree-flow.py --plan docs\plans\my-plan.md --harness codex --harness-dir .codex --base develop
 ```
+
+### Resume
+
+Resume requires `--resume --worktree <feature-worktree>`. Optional resume-only arguments are `--branch`, `--run-id`, `--integration-worktree`, and `--integration-branch`.
 
 ## Required Skills
 
@@ -75,6 +82,7 @@ Feature worktree:
 .<harness>/handoff/implementation-final-response.md
 .<harness>/handoff/audit-summary.md
 .<harness>/handoff/audit-final-response.md
+.<harness>/handoff/workflow-state.json
 ```
 
 Conflict path only, inside the integration worktree:
@@ -87,20 +95,19 @@ Conflict path only, inside the integration worktree:
 .<harness>/handoff/post-conflict-audit-final-response.md
 ```
 
-If the plan is outside the repo, the script copies it into the feature worktree at:
+The workflow plan is copied into the feature worktree at:
 
 ```text
-docs/plans/<slug>.md
+.<harness>/worktree-flow/<slug>/plan.md
 ```
 
-Before cleanup, the script archives handoff files back into the primary checkout:
+Before cleanup, the script archives handoff files and workflow state back into the primary checkout:
 
 ```text
-.<harness>/worktree-flow/<slug>-<timestamp>/feature/
-.<harness>/worktree-flow/<slug>-<timestamp>/integration/
+.<harness>/worktree-flow/<run-id>/
 ```
 
-These archive directories are the durable record after the feature and integration worktrees are removed.
+This archive directory contains the copied handoff files and `workflow-state.json`; it is the durable record after the feature and integration worktrees are removed.
 
 ## Safety Notes
 
@@ -111,3 +118,4 @@ These archive directories are the durable record after the feature and integrati
 - Worktrees and branches are deleted only after successful integration unless `--keep-worktrees` is set.
 - The implementation phase must create at least one commit and produce a diff from the base branch.
 - The audit phase may be a no-op with no new commit when the worktree is clean outside `.<harness>/handoff/`.
+- Tracked handoff artifacts produce a warning instead of a hard failure; non-handoff pending changes still fail integration checks.

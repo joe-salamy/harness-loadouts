@@ -112,11 +112,8 @@ class SkillUsageManagerTests(unittest.TestCase):
             repo_ledger = json.loads(
                 (repo / ".codex" / "skill-usage.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(
-                set(repo_ledger["scopes"]),
-                {f"repo:{manager.canonical(repo_skills)}"},
-            )
-            scope = next(iter(repo_ledger["scopes"].values()))
+            self.assertEqual(set(repo_ledger["scopes"]), {"repo"})
+            scope = repo_ledger["scopes"]["repo"]
             self.assertEqual(scope["scope"], "repo")
             self.assertEqual(scope["skills"]["save-plan"]["load_count"], 1)
 
@@ -244,6 +241,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             base = root / "base.json"
             source = source_repo / ".codex" / "skill-usage.json"
             target = target_repo / ".codex" / "skill-usage.json"
+            target_skills.mkdir(parents=True)
             write_json(base, ledger("repo", source_skills, {"implement-worktree": 2}))
             write_json(source, ledger("repo", source_skills, {"implement-worktree": 5}))
             write_json(target, ledger("repo", target_skills, {"implement-worktree": 10}))
@@ -268,7 +266,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
 
             data = json.loads(target.read_text(encoding="utf-8"))
-            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            scope = data["scopes"]["repo"]
             self.assertEqual(scope["total_loads"], 13)
             self.assertEqual(scope["skills"]["implement-worktree"]["load_count"], 13)
             self.assertEqual(scope["skills"]["implement-worktree"]["last_load_index"], 13)
@@ -283,6 +281,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             base = root / "missing-base.json"
             source = source_repo / ".codex" / "skill-usage.json"
             target = target_repo / ".codex" / "skill-usage.json"
+            target_skills.mkdir(parents=True)
             write_json(source, ledger("repo", source_skills, {"audit-worktree": 1}))
 
             manager.main(
@@ -302,7 +301,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
 
             data = json.loads(target.read_text(encoding="utf-8"))
-            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            scope = data["scopes"]["repo"]
             self.assertEqual(scope["skills_dir"], manager.canonical(target_skills))
             self.assertEqual(
                 scope["skills"]["audit-worktree"]["source_path"],
@@ -322,6 +321,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             base = root / "base.json"
             source = source_repo / ".codex" / "skill-usage.json"
             target = integration_repo / ".codex" / "skill-usage.json"
+            target_skills.mkdir(parents=True)
             write_json(source, ledger("repo", source_skills, {"audit-worktree": 1}))
             write_json(target, ledger("repo", integration_skills, {"merge-conflict-resolver": 2}))
 
@@ -344,11 +344,8 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
 
             data = json.loads(target.read_text(encoding="utf-8"))
-            self.assertEqual(
-                set(data["scopes"]),
-                {f"repo:{manager.canonical(target_skills)}"},
-            )
-            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            self.assertEqual(set(data["scopes"]), {"repo"})
+            scope = data["scopes"]["repo"]
             self.assertEqual(scope["skills"]["audit-worktree"]["load_count"], 1)
             self.assertEqual(scope["skills"]["merge-conflict-resolver"]["load_count"], 2)
             self.assertEqual(
@@ -369,6 +366,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             write_json(base, ledger("repo", source_skills, {"python-pro": 1}))
             write_json(source, ledger("repo", source_skills, {"python-pro": 2}))
             target_data = ledger("repo", target_skills, {"python-pro": 4, "save-plan": 3})
+            target_skills.mkdir(parents=True)
             target_scope = next(iter(target_data["scopes"].values()))
             target_scope["skills"]["python-pro"]["pinned"] = True
             write_json(target, target_data)
@@ -390,7 +388,7 @@ class SkillUsageManagerTests(unittest.TestCase):
             )
 
             data = json.loads(target.read_text(encoding="utf-8"))
-            scope = data["scopes"][f"repo:{manager.canonical(target_skills)}"]
+            scope = data["scopes"]["repo"]
             self.assertEqual(scope["total_loads"], 8)
             self.assertEqual(scope["skills"]["python-pro"]["load_count"], 5)
             self.assertEqual(scope["skills"]["save-plan"]["load_count"], 3)
