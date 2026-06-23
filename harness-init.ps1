@@ -201,6 +201,50 @@ function Copy-FileWithPrompt {
     }
 }
 
+function Test-SkipGeneratedPythonCache {
+    param([System.IO.FileSystemInfo]$Item, [string]$RelativePath = "")
+
+    if ($Item.Name -eq "__pycache__") {
+        return $true
+    }
+
+    if (-not $Item.PSIsContainer -and ($Item.Extension -in @(".pyc", ".pyo"))) {
+        return $true
+    }
+
+    $normalized = $RelativePath.Replace("\", "/")
+    return (($normalized -split "/") -contains "__pycache__")
+}
+
+function Copy-ItemWithoutGeneratedPythonCache {
+    param([string]$Source, [string]$Dest)
+
+    $item = Get-Item -LiteralPath $Source -Force
+    if (Test-SkipGeneratedPythonCache -Item $item -RelativePath $item.Name) {
+        return $false
+    }
+
+    if ($item.PSIsContainer) {
+        if (-not (Test-Path $Dest)) {
+            New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+        }
+
+        foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force) {
+            $childDest = Join-Path $Dest $child.Name
+            Copy-ItemWithoutGeneratedPythonCache -Source $child.FullName -Dest $childDest | Out-Null
+        }
+    } else {
+        $destDir = Split-Path -Parent $Dest
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+        }
+        Copy-Item -LiteralPath $item.FullName -Destination $Dest -Force
+    }
+
+    return $true
+}
+
+
 function Copy-DirectoryWithPrompt {
     param([string]$Source, [string]$Dest, [string[]]$SkipRelativePaths = @(), [string]$Base = $Source)
 
@@ -211,9 +255,10 @@ function Copy-DirectoryWithPrompt {
     foreach ($child in Get-ChildItem -Path $Source -Force) {
         $relative = $child.FullName.Substring($Base.Length).TrimStart("\", "/")
         $normalized = $relative.Replace("\", "/")
-        if ($SkipRelativePaths -contains $normalized) {
+        if (($SkipRelativePaths -contains $normalized) -or (Test-SkipGeneratedPythonCache -Item $child -RelativePath $normalized)) {
             continue
         }
+
 
         $childDest = Join-Path $Dest $child.Name
         if ($child.PSIsContainer) {
@@ -236,12 +281,16 @@ function Copy-Skills {
     $skippedCount = 0
 
     foreach ($skill in Get-ChildItem -Path $Source -Force) {
+        if (Test-SkipGeneratedPythonCache -Item $skill -RelativePath $skill.Name) {
+            continue
+        }
+
         $targetSkillPath = Join-Path $Dest $skill.Name
         if (Test-Path $targetSkillPath) {
             Write-Host "  [EXISTS]   Skill '$($skill.Name)' already exists in target." -ForegroundColor DarkYellow
             $overwrite = Read-Host "           Overwrite? (y/N)"
             if ($overwrite -eq "y" -or $overwrite -eq "Y") {
-                Copy-Item -Path $skill.FullName -Destination $Dest -Recurse -Force
+                Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
                 $copiedCount++
                 Write-Host "           Overwritten." -ForegroundColor Yellow
             } else {
@@ -249,7 +298,7 @@ function Copy-Skills {
                 Write-Host "           Skipped." -ForegroundColor DarkYellow
             }
         } else {
-            Copy-Item -Path $skill.FullName -Destination $Dest -Recurse -Force
+            Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
             $copiedCount++
         }
     }
@@ -382,7 +431,7 @@ if ($profile.HookConfigPath) {
 $knownHarnessDirs = @(".harness", ".claude", ".opencode", ".codex", ".agents", ".gemini", ".omp")
 
 foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
-    if ($skipTopLevel -contains $item.Name) {
+    if ((Test-SkipGeneratedPythonCache -Item $item -RelativePath $item.Name) -or ($skipTopLevel -contains $item.Name)) {
         continue
     }
     if ($item.PSIsContainer -and ($knownHarnessDirs -contains $item.Name) -and ($item.Name -ne $profile.TemplateConfigDir) -and -not ($profile.ConfigDirs -contains $item.Name)) {
