@@ -1829,6 +1829,71 @@ class HarnessWorktreeFlowTests(unittest.TestCase):
         self.assertEqual(created["config"].command_timeout_seconds, 3.5)
         self.assertEqual(created["runner"].command_timeout_seconds, 3.5)
 
+    def test_resume_command_args_uses_saved_workflow_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            feature = Path(temp) / "repo-feature path"
+            integration = Path(temp) / "repo-integration"
+            plan = repo / "docs" / "plans" / "plan.md"
+            repo.mkdir(parents=True)
+            config = self.config(repo, plan, model="gpt-test")
+            subject = flow.HarnessWorktreeFlow(config, FakeRunner())
+            state = self.workflow_state(feature)
+            state = flow.replace(
+                state,
+                integration_worktree=str(integration),
+                integration_branch="integration/plan",
+            )
+
+            subject.save_workflow_state(state)
+
+            args = subject.resume_command_args()
+            self.assertIsNotNone(args)
+            assert args is not None
+            self.assertEqual(args[0], sys.executable)
+            self.assertEqual(args[1], str(Path(flow.__file__).resolve()))
+            self.assertIn("--resume", args)
+            self.assertEqual(args[args.index("--plan") + 1], str(plan))
+            self.assertEqual(args[args.index("--worktree") + 1], str(feature))
+            self.assertEqual(args[args.index("--repo") + 1], str(repo))
+            self.assertEqual(args[args.index("--base") + 1], "main")
+            self.assertEqual(args[args.index("--branch") + 1], "feature/plan")
+            self.assertEqual(args[args.index("--run-id") + 1], "plan-run")
+            self.assertEqual(args[args.index("--model") + 1], "gpt-test")
+            self.assertEqual(
+                args[args.index("--integration-worktree") + 1], str(integration)
+            )
+            self.assertEqual(
+                args[args.index("--integration-branch") + 1], "integration/plan"
+            )
+
+    def test_main_prints_resume_command_on_failure(self) -> None:
+        class FakeFlow:
+            def __init__(self, config, runner) -> None:
+                pass
+
+            def run(self) -> None:
+                raise flow.FlowError("boom")
+
+            def resume_command(self) -> str:
+                return "python worktree-flow.py --resume --worktree repo-feature"
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(flow, "HarnessWorktreeFlow", FakeFlow),
+        ):
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                result = flow.main(["--plan", str(Path(temp) / "plan.md")])
+
+        self.assertEqual(result, 1)
+        text = stderr.getvalue()
+        self.assertIn("boom", text)
+        self.assertIn("Resume command:", text)
+        self.assertIn(
+            "python worktree-flow.py --resume --worktree repo-feature", text
+        )
+
     def test_local_git_worktree_and_squash_merge(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git is not installed")

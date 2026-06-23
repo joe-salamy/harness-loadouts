@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,12 @@ def logged_command(args: Sequence[str]) -> list[str]:
     if command and command[-1] == "-":
         command.pop()
     return command
+
+def shell_command(args: Sequence[str]) -> str:
+    command = [str(arg) for arg in args]
+    if os.name == "nt":
+        return subprocess.list2cmdline(command)
+    return shlex.join(command)
 
 
 def wsl_drive_mount_to_windows_path(path: Path) -> str | None:
@@ -320,6 +327,7 @@ class HarnessWorktreeFlow:
         self.config = config
         self.runner = runner
         self.log_file: Path | None = None
+        self._last_state: WorkflowState | None = None
         self._base = config.base
 
     @property
@@ -393,6 +401,7 @@ class HarnessWorktreeFlow:
 
     def save_workflow_state_file(self, path: Path, state: WorkflowState) -> None:
         self.ensure_dir(path.parent)
+        self._last_state = state
         self.write_text(
             path, json.dumps(asdict(state), indent=2, sort_keys=True) + "\n"
         )
@@ -409,9 +418,58 @@ class HarnessWorktreeFlow:
             return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return WorkflowState(**data)
+            state = WorkflowState(**data)
+            self._last_state = state
+            return state
         except (json.JSONDecodeError, TypeError) as exc:
             raise FlowError(f"Invalid workflow state file: {path}") from exc
+
+    def resume_command_args(self) -> list[str] | None:
+        state = self._last_state
+        if state is None:
+            return None
+        args = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--resume",
+            "--plan",
+            str(self.config.plan),
+            "--worktree",
+            state.feature_worktree,
+            "--repo",
+            str(self.config.repo),
+            "--base",
+            state.base,
+            "--branch",
+            state.feature_branch,
+            "--run-id",
+            state.run_id,
+            "--harness",
+            self.config.harness,
+            "--harness-dir",
+            str(self.harness_dir),
+            "--merge-mode",
+            state.merge_mode,
+        ]
+        if self.config.model:
+            args.extend(["--model", self.config.model])
+        if self.config.keep_worktrees:
+            args.append("--keep-worktrees")
+        if self.config.command_timeout_seconds is not None:
+            args.extend(
+                ["--command-timeout-seconds", str(self.config.command_timeout_seconds)]
+            )
+        if state.integration_worktree is not None:
+            args.extend(["--integration-worktree", state.integration_worktree])
+        if state.integration_branch is not None:
+            args.extend(["--integration-branch", state.integration_branch])
+        return args
+
+    def resume_command(self) -> str | None:
+        args = self.resume_command_args()
+        if args is None:
+            return None
+        return shell_command(args)
 
     def update_workflow_state(
         self, state: WorkflowState, **changes: object
@@ -2155,6 +2213,7 @@ def main(
         parser.error("resume-only arguments require --resume")
 
     config = flow_config_from_args(args)
+    flow: HarnessWorktreeFlow | None = None
     try:
         flow = HarnessWorktreeFlow(
             config,
@@ -2182,6 +2241,11 @@ def main(
             flow.run()
     except FlowError as exc:
         print(str(exc), file=sys.stderr)
+        if flow is not None:
+            resume_command = flow.resume_command()
+            if resume_command is not None:
+                print("\nResume command:", file=sys.stderr)
+                print(f"  {resume_command}", file=sys.stderr)
         return 1
     return 0
 
