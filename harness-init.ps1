@@ -16,7 +16,8 @@ param(
     [string]$Target = ".",
     [ValidateSet("opencode", "codex", "gemini", "claude", "claude-code", "omp")]
     [string]$Harness,
-    [switch]$List
+    [switch]$List,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -182,13 +183,18 @@ function Copy-FileWithPrompt {
 
     if (Test-Path $Dest) {
         $relPath = $Dest.Replace($Target, "").TrimStart("\", "/")
-        Write-Host "  [EXISTS]   '$relPath' already exists in target." -ForegroundColor DarkYellow
-        $overwrite = Read-Host "           Overwrite? (y/N)"
-        if ($overwrite -eq "y" -or $overwrite -eq "Y") {
+        if ($Force) {
             Copy-Item -Path $Source -Destination $Dest -Force
-            Write-Host "           Overwritten." -ForegroundColor Yellow
+            Write-Host "  [OVERWROTE] $relPath" -ForegroundColor Yellow
         } else {
-            Write-Host "           Skipped." -ForegroundColor DarkYellow
+            Write-Host "  [EXISTS]   '$relPath' already exists in target." -ForegroundColor DarkYellow
+            $overwrite = Read-Host "           Overwrite? (y/N)"
+            if ($overwrite -eq "y" -or $overwrite -eq "Y") {
+                Copy-Item -Path $Source -Destination $Dest -Force
+                Write-Host "           Overwritten." -ForegroundColor Yellow
+            } else {
+                Write-Host "           Skipped." -ForegroundColor DarkYellow
+            }
         }
     } else {
         $destDir = Split-Path -Parent $Dest
@@ -288,14 +294,20 @@ function Copy-Skills {
         $targetSkillPath = Join-Path $Dest $skill.Name
         if (Test-Path $targetSkillPath) {
             Write-Host "  [EXISTS]   Skill '$($skill.Name)' already exists in target." -ForegroundColor DarkYellow
-            $overwrite = Read-Host "           Overwrite? (y/N)"
-            if ($overwrite -eq "y" -or $overwrite -eq "Y") {
+            if ($Force) {
                 Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
                 $copiedCount++
                 Write-Host "           Overwritten." -ForegroundColor Yellow
             } else {
-                $skippedCount++
-                Write-Host "           Skipped." -ForegroundColor DarkYellow
+                $overwrite = Read-Host "           Overwrite? (y/N)"
+                if ($overwrite -eq "y" -or $overwrite -eq "Y") {
+                    Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
+                    $copiedCount++
+                    Write-Host "           Overwritten." -ForegroundColor Yellow
+                } else {
+                    $skippedCount++
+                    Write-Host "           Skipped." -ForegroundColor DarkYellow
+                }
             }
         } else {
             Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
@@ -337,6 +349,72 @@ function Copy-InstructionFile {
         [System.IO.File]::WriteAllText($targetFile, $loadoutContent)
         Write-Host "  [COPIED]   $($Profile.InstructionFile)" -ForegroundColor Green
     }
+}
+
+function Get-LoadoutUsagePath {
+    param([string]$LoadoutPath)
+    return Join-RepoPath $LoadoutPath ".harness-loadout/applied-repos.json"
+}
+
+function Read-LoadoutUsage {
+    param([string]$UsagePath, [string]$Loadout)
+
+    if (-not (Test-Path $UsagePath)) {
+        return [PSCustomObject]@{
+            version = 1
+            loadout = $Loadout
+            repos = @()
+        }
+    }
+
+    $data = Get-Content -Raw $UsagePath | ConvertFrom-Json
+    $version = if ($data.PSObject.Properties["version"]) { $data.version } else { 1 }
+    $usageLoadout = if ($data.PSObject.Properties["loadout"]) { $data.loadout } else { $Loadout }
+    $repos = if ($data.PSObject.Properties["repos"]) { @(ConvertTo-Array $data.repos) } else { @() }
+
+    return [PSCustomObject]@{
+        version = $version
+        loadout = $usageLoadout
+        repos = $repos
+    }
+}
+
+function Save-LoadoutUsage {
+    param([string]$LoadoutPath, [string]$Loadout, [string]$Target, [string]$Harness)
+
+    $usagePath = Get-LoadoutUsagePath -LoadoutPath $LoadoutPath
+    $metadataDir = Split-Path -Parent $usagePath
+    if ((Test-Path $metadataDir) -and -not (Test-Path $metadataDir -PathType Container)) {
+        throw "Loadout metadata path '$metadataDir' exists but is not a directory."
+    }
+    New-Item -ItemType Directory -Force -Path $metadataDir | Out-Null
+
+    $usage = Read-LoadoutUsage -UsagePath $usagePath -Loadout $Loadout
+    $repos = @()
+    foreach ($repo in @(ConvertTo-Array $usage.repos)) {
+        if ($null -eq $repo) {
+            continue
+        }
+        $samePath = [string]::Equals([string]$repo.path, $Target, [System.StringComparison]::OrdinalIgnoreCase)
+        $sameHarness = [string]::Equals([string]$repo.harness, $Harness, [System.StringComparison]::OrdinalIgnoreCase)
+        if (-not ($samePath -and $sameHarness)) {
+            $repos += $repo
+        }
+    }
+
+    $repos += [PSCustomObject]@{
+        path = $Target
+        harness = $Harness
+        lastAppliedAt = (Get-Date).ToUniversalTime().ToString("o")
+    }
+
+    $usage = [PSCustomObject]@{
+        version = $usage.version
+        loadout = $usage.loadout
+        repos = @($repos | Sort-Object -Property path, harness)
+    }
+    $json = $usage | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText($usagePath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
 if ($List) {
@@ -431,7 +509,7 @@ if ($profile.HookConfigPath) {
 $knownHarnessDirs = @(".harness", ".claude", ".opencode", ".codex", ".agents", ".gemini", ".omp")
 
 foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
-    if ((Test-SkipGeneratedPythonCache -Item $item -RelativePath $item.Name) -or ($skipTopLevel -contains $item.Name)) {
+    if ((Test-SkipGeneratedPythonCache -Item $item -RelativePath $item.Name) -or ($skipTopLevel -contains $item.Name) -or ($item.Name -eq ".harness-loadout")) {
         continue
     }
     if ($item.PSIsContainer -and ($knownHarnessDirs -contains $item.Name) -and ($item.Name -ne $profile.TemplateConfigDir) -and -not ($profile.ConfigDirs -contains $item.Name)) {
@@ -450,5 +528,7 @@ foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
         Copy-FileWithPrompt -Source $item.FullName -Dest $destPath
     }
 }
+
+Save-LoadoutUsage -LoadoutPath $LoadoutPath -Loadout $Loadout -Target $Target -Harness $profile.Name
 
 Write-Host "`nDone!" -ForegroundColor Cyan

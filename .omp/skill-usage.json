@@ -7,27 +7,27 @@
         "audit-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:35:26Z",
-          "last_load_index": 21,
-          "last_seen": "2026-06-24T01:36:51Z",
-          "load_count": 6,
+          "last_load_index": 26,
+          "last_seen": "2026-06-24T01:51:25Z",
+          "load_count": 7,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/audit-worktree"
         },
         "code-reviewer": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:36:04Z",
-          "last_load_index": 23,
-          "last_seen": "2026-06-24T01:38:43Z",
-          "load_count": 5,
+          "last_load_index": 27,
+          "last_seen": "2026-06-24T01:52:11Z",
+          "load_count": 6,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/code-reviewer"
         },
         "implement-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:26:47Z",
-          "last_load_index": 24,
-          "last_seen": "2026-06-24T01:32:04Z",
-          "load_count": 5,
+          "last_load_index": 28,
+          "last_seen": "2026-06-24T01:46:23Z",
+          "load_count": 6,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/implement-worktree"
         },
@@ -51,7 +51,7 @@
         }
       },
       "skills_dir": "C:/Users/joesa/Code/harness-loadouts/.omp/skills",
-      "total_loads": 25
+      "total_loads": 28
     }
   },
   "version": 1

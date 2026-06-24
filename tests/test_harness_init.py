@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +10,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "harness-init.ps1"
+UPDATE_SCRIPT = ROOT / "update-loadout-repos.ps1"
+
+
+def copy_scripts_to_temp_root(root: Path) -> tuple[Path, Path]:
+    harness_init = root / "harness-init.ps1"
+    update_loadout_repos = root / "update-loadout-repos.ps1"
+    harness_init.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    update_loadout_repos.write_text(UPDATE_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    return harness_init, update_loadout_repos
+
 
 
 class HarnessInitTests(unittest.TestCase):
@@ -44,8 +55,7 @@ class HarnessInitTests(unittest.TestCase):
             (loadout / ".harness" / "settings.txt").write_text("setting\n", encoding="utf-8")
             (loadout / ".harness" / "skills" / "demo" / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
 
-            script = root / "harness-init.ps1"
-            script.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            script, _ = copy_scripts_to_temp_root(root)
             result = subprocess.run(
                 ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex"],
                 cwd=root,
@@ -76,8 +86,7 @@ class HarnessInitTests(unittest.TestCase):
             (loadout / ".harness" / "skills" / "demo" / "SKILL.md").write_text("# Demo\n", encoding="utf-8")
             (loadout / ".harness" / "skills" / "demo" / "__pycache__" / "skill.cpython-313.pyc").write_bytes(b"cache")
 
-            script = root / "harness-init.ps1"
-            script.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+            script, _ = copy_scripts_to_temp_root(root)
             result = subprocess.run(
                 ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex"],
                 cwd=root,
@@ -93,6 +102,186 @@ class HarnessInitTests(unittest.TestCase):
             self.assertFalse((target / ".codex" / "scripts" / "tool.pyc").exists())
             self.assertFalse((target / ".codex" / "scripts" / "__pycache__").exists())
             self.assertFalse((target / ".codex" / "skills" / "demo" / "__pycache__").exists())
+
+    def test_records_and_upserts_repo_per_loadout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            loadout = root / "loadouts" / "custom"
+            target = root / "target"
+            loadout.mkdir(parents=True)
+            target.mkdir()
+            (loadout / "AGENTS.md").write_text("# Instructions\n", encoding="utf-8")
+            script, _ = copy_scripts_to_temp_root(root)
+
+            command = ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex"]
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
+            data = json.loads(usage_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], 1)
+            self.assertEqual(data["loadout"], "custom")
+            self.assertEqual(len(data["repos"]), 1)
+            self.assertEqual(data["repos"][0]["path"], str(target.resolve()))
+            self.assertEqual(data["repos"][0]["harness"], "codex")
+            self.assertTrue(data["repos"][0]["lastAppliedAt"])
+
+            result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            data = json.loads(usage_path.read_text(encoding="utf-8"))
+            self.assertEqual(len(data["repos"]), 1)
+            self.assertEqual(data["repos"][0]["path"], str(target.resolve()))
+            self.assertEqual(data["repos"][0]["harness"], "codex")
+
+    def test_loadout_metadata_is_not_copied_to_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            loadout = root / "loadouts" / "custom"
+            target = root / "target"
+            (loadout / ".harness-loadout").mkdir(parents=True)
+            target.mkdir()
+            (loadout / "AGENTS.md").write_text("# Instructions\n", encoding="utf-8")
+            (loadout / ".harness-loadout" / "applied-repos.json").write_text(
+                json.dumps({"version": 1, "loadout": "custom", "repos": []}),
+                encoding="utf-8",
+            )
+            script, _ = copy_scripts_to_temp_root(root)
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((target / ".harness-loadout").exists())
+
+    def test_force_overwrites_existing_file_without_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            loadout = root / "loadouts" / "custom"
+            target = root / "target"
+            (loadout / ".harness").mkdir(parents=True)
+            (target / ".codex").mkdir(parents=True)
+            (loadout / ".harness" / "settings.txt").write_text("new", encoding="utf-8")
+            (target / ".codex" / "settings.txt").write_text("old", encoding="utf-8")
+            script, _ = copy_scripts_to_temp_root(root)
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex", "-Force"],
+                cwd=root,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((target / ".codex" / "settings.txt").read_text(encoding="utf-8"), "new")
+
+    def test_update_loadout_repos_updates_recorded_repos_and_skips_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            loadout = root / "loadouts" / "custom"
+            target1 = root / "target1"
+            target2 = root / "target2"
+            missing = root / "missing"
+            (loadout / ".harness").mkdir(parents=True)
+            target1.mkdir()
+            target2.mkdir()
+            (loadout / ".harness" / "settings.txt").write_text("v1", encoding="utf-8")
+            script, updater = copy_scripts_to_temp_root(root)
+
+            for target in (target1, target2):
+                result = subprocess.run(
+                    ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex", "-Force"],
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
+            usage_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "loadout": "custom",
+                        "repos": [
+                            {"path": str(target1.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                            {"path": str(target2.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                            {"path": str(missing.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (loadout / ".harness" / "settings.txt").write_text("v2", encoding="utf-8")
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater), "-Loadout", "custom"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((target1 / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v2")
+            self.assertEqual((target2 / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v2")
+            self.assertIn("Skipping missing repo", result.stdout + result.stderr)
+            data = json.loads(usage_path.read_text(encoding="utf-8"))
+            self.assertIn(str(missing.resolve()), [repo["path"] for repo in data["repos"]])
+
+    def test_update_loadout_repos_whatif_does_not_change_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            loadout = root / "loadouts" / "custom"
+            target = root / "target"
+            (loadout / ".harness").mkdir(parents=True)
+            target.mkdir()
+            (loadout / ".harness" / "settings.txt").write_text("v1", encoding="utf-8")
+            script, updater = copy_scripts_to_temp_root(root)
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Loadout", "custom", "-Target", str(target), "-Harness", "codex", "-Force"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
+            usage_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "loadout": "custom",
+                        "repos": [
+                            {"path": str(target.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (loadout / ".harness" / "settings.txt").write_text("v2", encoding="utf-8")
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater), "-Loadout", "custom", "-WhatIf"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((target / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v1")
 
 
 if __name__ == "__main__":

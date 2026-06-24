@@ -18,6 +18,9 @@ mkdir loadouts/my-loadout
 .\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness claude
 .\harness-init.ps1 -Loadout my-loadout -Target C:\path\to\repo -Harness omp
 
+# Reapply a changed loadout to every repo recorded for it
+.\update-loadout-repos.ps1 -Loadout my-loadout
+
 # List available loadouts and supported harnesses
 .\harness-init.ps1 -List
 ```
@@ -48,6 +51,9 @@ Anything else in a loadout is copied recursively at the matching path. This incl
 - Skills are copied recursively into the selected harness directory.
 - Known harness hook/config files are merged by hook event where possible while preserving existing target settings.
 - Existing files prompt before overwrite.
+- Successful applies record `<target path, harness, last applied time>` in `loadouts/<loadout>/.harness-loadout/applied-repos.json`.
+- `.harness-loadout/` metadata stays in the loadout and is not copied into targets.
+- `update-loadout-repos.ps1` replays recorded repositories with `-Force`, warning and continuing for missing repos.
 
 Earlier versions included a deprecated `claude-init.ps1` wrapper. Use `harness-init.ps1` directly.
 
