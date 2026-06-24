@@ -1,0 +1,14 @@
+{
+  "audit_head_before": "d94fe4748c3c528098cec961b1543f6fcc9bc126",
+  "base": "main",
+  "completed_stage": "cleanup_complete",
+  "feature_branch": "feature/init-prompts-plan",
+  "feature_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-init-prompts-plan",
+  "integration_branch": "integration/init-prompts-plan-20260623-183715",
+  "integration_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-integrate-init-prompts-plan-20260623-183715",
+  "merge_mode": "squash",
+  "plan_path": "C:\\Users\\joesa\\Code\\harness-loadouts-init-prompts-plan\\.omp\\worktree-flow\\init-prompts-plan\\plan.md",
+  "plan_title": "Init Prompts Plan",
+  "run_id": "init-prompts-plan-20260623-183147",
+  "slug": "init-prompts-plan"
+}
