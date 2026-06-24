@@ -1,11 +1,15 @@
 <#
 .SYNOPSIS
     Reapply a loadout to every repository recorded for that loadout.
+.DESCRIPTION
+    By default, AGENTS.md is left unchanged. Pass -UpdateAgentsMd to include
+    AGENTS.md when updating recorded repositories.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Loadout
+    [string]$Loadout,
+    [switch]$UpdateAgentsMd
 )
 
 $ErrorActionPreference = "Stop"
@@ -121,6 +125,11 @@ $planned = 0
 $skipped = 0
 $failed = 0
 
+$baseHarnessArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $HarnessInit)
+if (-not $UpdateAgentsMd) {
+    $baseHarnessArgs += "-SkipInstructionFile"
+}
+
 foreach ($repo in @($data.repos)) {
     if ($null -eq $repo -or [string]::IsNullOrWhiteSpace([string]$repo.path) -or [string]::IsNullOrWhiteSpace([string]$repo.harness)) {
         Write-Warning "Skipping malformed registry entry in $UsagePath."
@@ -136,7 +145,7 @@ foreach ($repo in @($data.repos)) {
 
     if (-not $PSCmdlet.ShouldProcess($repo.path, "Apply loadout '$Loadout' for harness '$($repo.harness)'")) {
         Write-Host "Planned update for repo: $($repo.path)" -ForegroundColor Cyan
-        & $Pwsh -NoProfile -ExecutionPolicy Bypass -File $HarnessInit -Loadout $Loadout -Target $repo.path -Harness $repo.harness -Force -PlanChanges
+        & $Pwsh @baseHarnessArgs -Loadout $Loadout -Target $repo.path -Harness $repo.harness -Force -PlanChanges
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Failed to plan repo: $($repo.path)"
             $failed++
@@ -146,7 +155,7 @@ foreach ($repo in @($data.repos)) {
         continue
     }
 
-    & $Pwsh -NoProfile -ExecutionPolicy Bypass -File $HarnessInit -Loadout $Loadout -Target $repo.path -Harness $repo.harness -Force
+    & $Pwsh @baseHarnessArgs -Loadout $Loadout -Target $repo.path -Harness $repo.harness -Force
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Failed to update repo: $($repo.path)"
         $failed++

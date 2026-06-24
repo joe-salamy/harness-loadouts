@@ -203,6 +203,7 @@ class HarnessInitTests(unittest.TestCase):
             target1.mkdir()
             target2.mkdir()
             (loadout / ".harness" / "settings.txt").write_text("v1", encoding="utf-8")
+            (loadout / "AGENTS.md").write_text("# Instructions v1\n", encoding="utf-8")
             script, updater = copy_scripts_to_temp_root(root)
 
             for target in (target1, target2):
@@ -235,6 +236,7 @@ class HarnessInitTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (loadout / ".harness" / "settings.txt").write_text("v2", encoding="utf-8")
+            (loadout / "AGENTS.md").write_text("# Instructions v2\n", encoding="utf-8")
 
             result = subprocess.run(
                 ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater), "-Loadout", "custom"],
@@ -247,9 +249,23 @@ class HarnessInitTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual((target1 / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v2")
             self.assertEqual((target2 / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v2")
+            self.assertEqual((target1 / "AGENTS.md").read_text(encoding="utf-8"), "# Instructions v1\n")
+            self.assertEqual((target2 / "AGENTS.md").read_text(encoding="utf-8"), "# Instructions v1\n")
             self.assertIn("Skipping missing repo", result.stdout + result.stderr)
             data = json.loads(usage_path.read_text(encoding="utf-8"))
             self.assertIn(str(missing.resolve()), [repo["path"] for repo in data["loadouts"]["custom"]["repos"]])
+
+            result = subprocess.run(
+                ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater), "-Loadout", "custom", "-UpdateAgentsMd"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("# Instructions v2\n", (target1 / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertIn("# Instructions v2\n", (target2 / "AGENTS.md").read_text(encoding="utf-8"))
 
     def test_update_loadout_repos_whatif_does_not_change_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

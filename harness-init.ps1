@@ -18,7 +18,8 @@ param(
     [string]$Harness,
     [switch]$List,
     [switch]$Force,
-    [switch]$PlanChanges
+    [switch]$PlanChanges,
+    [switch]$SkipInstructionFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -527,11 +528,13 @@ function Test-HookConfigWouldChange {
 }
 
 function Get-PlannedLoadoutChanges {
-    param([object]$Profile, [string]$LoadoutPath)
+    param([object]$Profile, [string]$LoadoutPath, [bool]$SkipInstructionFile = $false)
 
     $changes = [System.Collections.Generic.List[string]]::new()
 
-    Add-PlannedInstructionChange -Changes $changes -Profile $Profile -LoadoutPath $LoadoutPath
+    if (-not $SkipInstructionFile) {
+        Add-PlannedInstructionChange -Changes $changes -Profile $Profile -LoadoutPath $LoadoutPath
+    }
 
     $skipTopLevel = @($Profile.InstructionFile) + $Profile.InstructionAliases
     $skipByConfigDir = @{}
@@ -761,7 +764,7 @@ if (-not (Test-Path $Target -PathType Container)) {
 $profile = Get-HarnessProfile $Harness
 if ($PlanChanges) {
     Write-Host "Planning loadout '$Loadout' for '$Harness' to: $Target" -ForegroundColor Cyan
-    $plannedChanges = @(Get-PlannedLoadoutChanges -Profile $profile -LoadoutPath $LoadoutPath)
+    $plannedChanges = @(Get-PlannedLoadoutChanges -Profile $profile -LoadoutPath $LoadoutPath -SkipInstructionFile $SkipInstructionFile)
     if ($plannedChanges.Count -eq 0) {
         Write-Host "  [NO CHANGES] No file changes planned" -ForegroundColor DarkYellow
     } else {
@@ -773,7 +776,9 @@ if ($PlanChanges) {
 }
 Write-Host "Applying loadout '$Loadout' for '$Harness' to: $Target" -ForegroundColor Cyan
 
-Copy-InstructionFile -Profile $profile -LoadoutPath $LoadoutPath -Target $Target
+if (-not $SkipInstructionFile) {
+    Copy-InstructionFile -Profile $profile -LoadoutPath $LoadoutPath -Target $Target
+}
 
 if ($profile.SkillsPath) {
     $sourceSkills = $null
