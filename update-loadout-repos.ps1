@@ -12,8 +12,95 @@ $ErrorActionPreference = "Stop"
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LoadoutsDir = Join-Path $ScriptRoot "loadouts"
 $LoadoutPath = Join-Path $LoadoutsDir $Loadout
-$UsagePath = Join-Path $LoadoutPath ".harness-loadout/applied-repos.json"
+$UsagePath = Join-Path $ScriptRoot "applied-repos.json"
+$LegacyUsagePath = Join-Path $LoadoutPath ".harness-loadout/applied-repos.json"
 $HarnessInit = Join-Path $ScriptRoot "harness-init.ps1"
+
+function ConvertTo-Array {
+    param($Value)
+    if ($null -eq $Value) {
+        return @()
+    }
+    if ($Value -is [System.Array]) {
+        return @($Value)
+    }
+    return @($Value)
+}
+
+function Read-LoadoutUsage {
+    param([string]$UsagePath, [string]$LegacyUsagePath, [string]$Loadout)
+
+    if (Test-Path $UsagePath) {
+        try {
+            $registry = Get-Content -Raw $UsagePath | ConvertFrom-Json
+        } catch {
+            Write-Host "Error: Could not parse registry '$UsagePath'." -ForegroundColor Red
+            exit 1
+        }
+
+        $version = if ($registry.PSObject.Properties["version"]) { $registry.version } else { 1 }
+        if ($version -ne 1) {
+            Write-Host "Error: Unsupported registry version in '$UsagePath'." -ForegroundColor Red
+            exit 1
+        }
+
+        if ($registry.PSObject.Properties["loadouts"]) {
+            $entryProperty = $registry.loadouts.PSObject.Properties[$Loadout]
+            if ($entryProperty) {
+                $entry = $entryProperty.Value
+                if (-not $entry.PSObject.Properties["repos"]) {
+                    Write-Host "Error: Registry '$UsagePath' is missing repos for loadout '$Loadout'." -ForegroundColor Red
+                    exit 1
+                }
+
+                $usageLoadout = if ($entry.PSObject.Properties["loadout"]) { $entry.loadout } else { $Loadout }
+                return [PSCustomObject]@{
+                    version = 1
+                    loadout = $usageLoadout
+                    repos = @(ConvertTo-Array $entry.repos)
+                }
+            }
+        }
+
+        if ($registry.PSObject.Properties["repos"]) {
+            $usageLoadout = if ($registry.PSObject.Properties["loadout"]) { $registry.loadout } else { $Loadout }
+            return [PSCustomObject]@{
+                version = 1
+                loadout = $usageLoadout
+                repos = @(ConvertTo-Array $registry.repos)
+            }
+        }
+
+    }
+
+    if (Test-Path $LegacyUsagePath) {
+        try {
+            $data = Get-Content -Raw $LegacyUsagePath | ConvertFrom-Json
+        } catch {
+            Write-Host "Error: Could not parse registry '$LegacyUsagePath'." -ForegroundColor Red
+            exit 1
+        }
+
+        $version = if ($data.PSObject.Properties["version"]) { $data.version } else { 1 }
+        if ($version -ne 1) {
+            Write-Host "Error: Unsupported registry version in '$LegacyUsagePath'." -ForegroundColor Red
+            exit 1
+        }
+        if (-not $data.PSObject.Properties["repos"]) {
+            Write-Host "Error: Registry '$LegacyUsagePath' is missing repos." -ForegroundColor Red
+            exit 1
+        }
+
+        $usageLoadout = if ($data.PSObject.Properties["loadout"]) { $data.loadout } else { $Loadout }
+        return [PSCustomObject]@{
+            version = 1
+            loadout = $usageLoadout
+            repos = @(ConvertTo-Array $data.repos)
+        }
+    }
+
+    return $null
+}
 
 if (-not (Test-Path $LoadoutPath -PathType Container)) {
     Write-Host "Error: Loadout '$Loadout' not found." -ForegroundColor Red
@@ -22,26 +109,10 @@ if (-not (Test-Path $LoadoutPath -PathType Container)) {
     exit 1
 }
 
-if (-not (Test-Path $UsagePath)) {
+$data = Read-LoadoutUsage -UsagePath $UsagePath -LegacyUsagePath $LegacyUsagePath -Loadout $Loadout
+if ($null -eq $data) {
     Write-Host "No repositories recorded for loadout '$Loadout'."
     exit 0
-}
-
-try {
-    $data = Get-Content -Raw $UsagePath | ConvertFrom-Json
-} catch {
-    Write-Host "Error: Could not parse registry '$UsagePath'." -ForegroundColor Red
-    exit 1
-}
-
-if ($data.version -ne 1) {
-    Write-Host "Error: Unsupported registry version in '$UsagePath'." -ForegroundColor Red
-    exit 1
-}
-
-if (-not $data.PSObject.Properties["repos"]) {
-    Write-Host "Error: Registry '$UsagePath' is missing repos." -ForegroundColor Red
-    exit 1
 }
 
 $Pwsh = (Get-Command pwsh -ErrorAction Stop).Source

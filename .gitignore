@@ -11,6 +11,9 @@ __pycache__/
 *.py[cod]
 node_modules/
 
+# Local loadout apply registry
+/applied-repos.json
+
 # Editor
 *.swp
 *.swo

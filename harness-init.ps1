@@ -610,44 +610,95 @@ function Get-PlannedLoadoutChanges {
 }
 
 function Get-LoadoutUsagePath {
+    param([string]$HarnessRoot)
+    return Join-Path $HarnessRoot "applied-repos.json"
+}
+
+function Get-LegacyLoadoutUsagePath {
     param([string]$LoadoutPath)
     return Join-RepoPath $LoadoutPath ".harness-loadout/applied-repos.json"
 }
 
 function Read-LoadoutUsage {
-    param([string]$UsagePath, [string]$Loadout)
+    param([string]$UsagePath, [string]$LegacyUsagePath, [string]$Loadout)
 
-    if (-not (Test-Path $UsagePath)) {
-        return [PSCustomObject]@{
-            version = 1
-            loadout = $Loadout
-            repos = @()
+    if (Test-Path $UsagePath) {
+        $registry = Get-Content -Raw $UsagePath | ConvertFrom-Json
+        if ($registry.PSObject.Properties["loadouts"]) {
+            $entryProperty = $registry.loadouts.PSObject.Properties[$Loadout]
+            if ($entryProperty) {
+                $entry = $entryProperty.Value
+                $usageLoadout = if ($entry.PSObject.Properties["loadout"]) { $entry.loadout } else { $Loadout }
+                $repos = if ($entry.PSObject.Properties["repos"]) { @(ConvertTo-Array $entry.repos) } else { @() }
+                return [PSCustomObject]@{
+                    version = 1
+                    loadout = $usageLoadout
+                    repos = $repos
+                }
+            }
+        }
+
+        if ($registry.PSObject.Properties["repos"]) {
+            $usageLoadout = if ($registry.PSObject.Properties["loadout"]) { $registry.loadout } else { $Loadout }
+            return [PSCustomObject]@{
+                version = 1
+                loadout = $usageLoadout
+                repos = @(ConvertTo-Array $registry.repos)
+            }
         }
     }
 
-    $data = Get-Content -Raw $UsagePath | ConvertFrom-Json
-    $version = if ($data.PSObject.Properties["version"]) { $data.version } else { 1 }
-    $usageLoadout = if ($data.PSObject.Properties["loadout"]) { $data.loadout } else { $Loadout }
-    $repos = if ($data.PSObject.Properties["repos"]) { @(ConvertTo-Array $data.repos) } else { @() }
+    if (Test-Path $LegacyUsagePath) {
+        $data = Get-Content -Raw $LegacyUsagePath | ConvertFrom-Json
+        $usageLoadout = if ($data.PSObject.Properties["loadout"]) { $data.loadout } else { $Loadout }
+        $repos = if ($data.PSObject.Properties["repos"]) { @(ConvertTo-Array $data.repos) } else { @() }
+
+        return [PSCustomObject]@{
+            version = 1
+            loadout = $usageLoadout
+            repos = $repos
+        }
+    }
 
     return [PSCustomObject]@{
-        version = $version
-        loadout = $usageLoadout
-        repos = $repos
+        version = 1
+        loadout = $Loadout
+        repos = @()
+    }
+}
+
+function Read-LoadoutUsageRegistry {
+    param([string]$UsagePath)
+
+    if (Test-Path $UsagePath) {
+        $registry = Get-Content -Raw $UsagePath | ConvertFrom-Json
+        $version = if ($registry.PSObject.Properties["version"]) { $registry.version } else { 1 }
+        $loadouts = if ($registry.PSObject.Properties["loadouts"] -and $null -ne $registry.loadouts) { $registry.loadouts } else { [PSCustomObject]@{} }
+        return [PSCustomObject]@{
+            version = $version
+            loadouts = $loadouts
+        }
+    }
+
+    return [PSCustomObject]@{
+        version = 1
+        loadouts = [PSCustomObject]@{}
     }
 }
 
 function Save-LoadoutUsage {
-    param([string]$LoadoutPath, [string]$Loadout, [string]$Target, [string]$Harness)
+    param([string]$HarnessRoot, [string]$LoadoutPath, [string]$Loadout, [string]$Target, [string]$Harness)
 
-    $usagePath = Get-LoadoutUsagePath -LoadoutPath $LoadoutPath
+    $usagePath = Get-LoadoutUsagePath -HarnessRoot $HarnessRoot
+    $legacyUsagePath = Get-LegacyLoadoutUsagePath -LoadoutPath $LoadoutPath
     $metadataDir = Split-Path -Parent $usagePath
     if ((Test-Path $metadataDir) -and -not (Test-Path $metadataDir -PathType Container)) {
-        throw "Loadout metadata path '$metadataDir' exists but is not a directory."
+        throw "Harness metadata path '$metadataDir' exists but is not a directory."
     }
     New-Item -ItemType Directory -Force -Path $metadataDir | Out-Null
 
-    $usage = Read-LoadoutUsage -UsagePath $usagePath -Loadout $Loadout
+    $registry = Read-LoadoutUsageRegistry -UsagePath $usagePath
+    $usage = Read-LoadoutUsage -UsagePath $usagePath -LegacyUsagePath $legacyUsagePath -Loadout $Loadout
     $repos = @()
     foreach ($repo in @(ConvertTo-Array $usage.repos)) {
         if ($null -eq $repo) {
@@ -666,12 +717,12 @@ function Save-LoadoutUsage {
         lastAppliedAt = (Get-Date).ToUniversalTime().ToString("o")
     }
 
-    $usage = [PSCustomObject]@{
-        version = $usage.version
+    $entry = [PSCustomObject]@{
         loadout = $usage.loadout
         repos = @($repos | Sort-Object -Property path, harness)
     }
-    $json = $usage | ConvertTo-Json -Depth 10
+    $registry.loadouts | Add-Member -NotePropertyName $Loadout -NotePropertyValue $entry -Force
+    $json = $registry | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText($usagePath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
@@ -799,6 +850,6 @@ foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
     }
 }
 
-Save-LoadoutUsage -LoadoutPath $LoadoutPath -Loadout $Loadout -Target $Target -Harness $profile.Name
+Save-LoadoutUsage -HarnessRoot $ScriptRoot -LoadoutPath $LoadoutPath -Loadout $Loadout -Target $Target -Harness $profile.Name
 
 Write-Host "`nDone!" -ForegroundColor Cyan

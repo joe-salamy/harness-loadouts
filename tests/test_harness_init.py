@@ -117,9 +117,10 @@ class HarnessInitTests(unittest.TestCase):
             result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
-            data = json.loads(usage_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["version"], 1)
+            usage_path = root / "applied-repos.json"
+            registry = json.loads(usage_path.read_text(encoding="utf-8"))
+            data = registry["loadouts"]["custom"]
+            self.assertEqual(registry["version"], 1)
             self.assertEqual(data["loadout"], "custom")
             self.assertEqual(len(data["repos"]), 1)
             self.assertEqual(data["repos"][0]["path"], str(target.resolve()))
@@ -129,21 +130,21 @@ class HarnessInitTests(unittest.TestCase):
             result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            data = json.loads(usage_path.read_text(encoding="utf-8"))
+            data = json.loads(usage_path.read_text(encoding="utf-8"))["loadouts"]["custom"]
             self.assertEqual(len(data["repos"]), 1)
             self.assertEqual(data["repos"][0]["path"], str(target.resolve()))
             self.assertEqual(data["repos"][0]["harness"], "codex")
 
-    def test_loadout_metadata_is_not_copied_to_target(self) -> None:
+    def test_root_usage_registry_is_not_copied_to_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             loadout = root / "loadouts" / "custom"
             target = root / "target"
-            (loadout / ".harness-loadout").mkdir(parents=True)
+            loadout.mkdir(parents=True)
             target.mkdir()
             (loadout / "AGENTS.md").write_text("# Instructions\n", encoding="utf-8")
-            (loadout / ".harness-loadout" / "applied-repos.json").write_text(
-                json.dumps({"version": 1, "loadout": "custom", "repos": []}),
+            (root / "applied-repos.json").write_text(
+                json.dumps({"version": 1, "loadouts": {"custom": {"loadout": "custom", "repos": []}}}),
                 encoding="utf-8",
             )
             script, _ = copy_scripts_to_temp_root(root)
@@ -157,6 +158,7 @@ class HarnessInitTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((target / "applied-repos.json").exists())
             self.assertFalse((target / ".harness-loadout").exists())
 
     def test_force_overwrites_existing_file_without_stdin(self) -> None:
@@ -206,17 +208,21 @@ class HarnessInitTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
+            usage_path = root / "applied-repos.json"
             usage_path.write_text(
                 json.dumps(
                     {
                         "version": 1,
-                        "loadout": "custom",
-                        "repos": [
-                            {"path": str(target1.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
-                            {"path": str(target2.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
-                            {"path": str(missing.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
-                        ],
+                        "loadouts": {
+                            "custom": {
+                                "loadout": "custom",
+                                "repos": [
+                                    {"path": str(target1.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                                    {"path": str(target2.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                                    {"path": str(missing.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"},
+                                ],
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -236,7 +242,7 @@ class HarnessInitTests(unittest.TestCase):
             self.assertEqual((target2 / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v2")
             self.assertIn("Skipping missing repo", result.stdout + result.stderr)
             data = json.loads(usage_path.read_text(encoding="utf-8"))
-            self.assertIn(str(missing.resolve()), [repo["path"] for repo in data["repos"]])
+            self.assertIn(str(missing.resolve()), [repo["path"] for repo in data["loadouts"]["custom"]["repos"]])
 
     def test_update_loadout_repos_whatif_does_not_change_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -257,15 +263,19 @@ class HarnessInitTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-            usage_path = loadout / ".harness-loadout" / "applied-repos.json"
+            usage_path = root / "applied-repos.json"
             usage_path.write_text(
                 json.dumps(
                     {
                         "version": 1,
-                        "loadout": "custom",
-                        "repos": [
-                            {"path": str(target.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"}
-                        ],
+                        "loadouts": {
+                            "custom": {
+                                "loadout": "custom",
+                                "repos": [
+                                    {"path": str(target.resolve()), "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"}
+                                ],
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
