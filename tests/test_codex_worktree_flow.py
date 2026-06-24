@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import importlib.util
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import json
 import shutil
 import subprocess
@@ -431,6 +431,24 @@ class SharedHarnessSelectionTests(unittest.TestCase):
 
 
 class HarnessWorktreeFlowTests(unittest.TestCase):
+    def test_print_checkpoint_formats_details(self) -> None:
+        buffer = io.StringIO()
+
+        with redirect_stdout(buffer):
+            flow.HarnessWorktreeFlow.print_checkpoint(
+                "start",
+                "Implementation",
+                (
+                    ("worktree", Path("repo-plan")),
+                    ("empty", ""),
+                    ("missing", None),
+                ),
+            )
+
+        self.assertEqual(
+            buffer.getvalue(), "[start] Implementation\n  worktree: repo-plan\n"
+        )
+
     def test_slug_uses_first_h1(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             plan = Path(temp) / "plan.md"
