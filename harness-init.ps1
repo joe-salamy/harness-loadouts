@@ -294,12 +294,12 @@ function Copy-Skills {
 
         $targetSkillPath = Join-Path $Dest $skill.Name
         if (Test-Path $targetSkillPath) {
-            Write-Host "  [EXISTS]   Skill '$($skill.Name)' already exists in target." -ForegroundColor DarkYellow
             if ($Force) {
                 Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null
                 $copiedCount++
-                Write-Host "           Overwritten." -ForegroundColor Yellow
+                Write-Host "  [OVERWROTE] Skill '$($skill.Name)'" -ForegroundColor Yellow
             } else {
+                Write-Host "  [EXISTS]   Skill '$($skill.Name)' already exists in target." -ForegroundColor DarkYellow
                 $overwrite = Read-Host "           Overwrite? (y/N)"
                 if ($overwrite -eq "y" -or $overwrite -eq "Y") {
                     Copy-ItemWithoutGeneratedPythonCache -Source $skill.FullName -Dest $targetSkillPath | Out-Null

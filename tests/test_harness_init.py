@@ -170,6 +170,10 @@ class HarnessInitTests(unittest.TestCase):
             (target / ".codex").mkdir(parents=True)
             (loadout / ".harness" / "settings.txt").write_text("new", encoding="utf-8")
             (target / ".codex" / "settings.txt").write_text("old", encoding="utf-8")
+            (loadout / ".harness" / "skills" / "demo").mkdir(parents=True)
+            (target / ".codex" / "skills" / "demo").mkdir(parents=True)
+            (loadout / ".harness" / "skills" / "demo" / "SKILL.md").write_text("new skill", encoding="utf-8")
+            (target / ".codex" / "skills" / "demo" / "SKILL.md").write_text("old skill", encoding="utf-8")
             script, _ = copy_scripts_to_temp_root(root)
 
             result = subprocess.run(
@@ -184,6 +188,9 @@ class HarnessInitTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual((target / ".codex" / "settings.txt").read_text(encoding="utf-8"), "new")
+            self.assertEqual((target / ".codex" / "skills" / "demo" / "SKILL.md").read_text(encoding="utf-8"), "new skill")
+            self.assertIn("[OVERWROTE] Skill 'demo'", result.stdout)
+            self.assertNotIn("[EXISTS]   Skill 'demo'", result.stdout)
 
     def test_update_loadout_repos_updates_recorded_repos_and_skips_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
