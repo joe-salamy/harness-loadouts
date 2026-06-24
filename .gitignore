@@ -14,6 +14,13 @@ node_modules/
 # Local loadout apply registry
 /applied-repos.json
 
+
+# Personal loadouts; keep the shared worktrees loadout tracked
+/loadouts/*
+!/loadouts/worktrees/
+!/loadouts/worktrees/**
+/loadouts/worktrees/**/__pycache__/
+/loadouts/worktrees/**/*.py[cod]
 # Editor
 *.swp
 *.swo

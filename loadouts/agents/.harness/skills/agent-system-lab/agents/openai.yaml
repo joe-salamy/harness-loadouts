@@ -1,7 +1,0 @@
-interface:
-  display_name: "Agent System Lab"
-  short_description: "Build live eval loops for agent systems"
-  default_prompt: "Use $agent-system-lab to analyze this repo's agent use cases, verify logging, create live real-user-task evals, and plan an eval-driven improvement loop."
-
-policy:
-  allow_implicit_invocation: true
