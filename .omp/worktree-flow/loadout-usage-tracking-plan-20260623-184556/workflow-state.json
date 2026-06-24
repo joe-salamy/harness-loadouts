@@ -1,0 +1,14 @@
+{
+  "audit_head_before": "11865fbbc4daddfc74b68284135cfccffb026a03",
+  "base": "main",
+  "completed_stage": "cleanup_complete",
+  "feature_branch": "feature/loadout-usage-tracking-plan",
+  "feature_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-loadout-usage-tracking-plan",
+  "integration_branch": "integration/loadout-usage-tracking-plan-20260623-185518",
+  "integration_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-integrate-loadout-usage-tracking-plan-20260623-185518",
+  "merge_mode": "squash",
+  "plan_path": "C:\\Users\\joesa\\Code\\harness-loadouts-loadout-usage-tracking-plan\\.omp\\worktree-flow\\loadout-usage-tracking-plan\\plan.md",
+  "plan_title": "Loadout Usage Tracking Plan",
+  "run_id": "loadout-usage-tracking-plan-20260623-184556",
+  "slug": "loadout-usage-tracking-plan"
+}
