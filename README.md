@@ -22,6 +22,10 @@ mkdir loadouts/my-loadout
 .\harness-init.ps1 -List
 ```
 
+## Init Prompts
+
+Reusable repo-initialization prompts live in `init-prompts/`. They are source templates, not loadout payloads, so `harness-init.ps1` does not copy them into target repos. Use them when a target repo needs discovery-driven setup before or after applying a loadout.
+
 ## Harness Conventions
 
 Loadout templates are harness-agnostic:
