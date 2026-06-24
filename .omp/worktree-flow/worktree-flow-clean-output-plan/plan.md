@@ -1,9 +1,11 @@
 # Worktree Flow Clean Output Plan
 
 ## Context
+
 The original request was to compare this repo’s `.omp/scripts/worktree-flow.py` with `C:/Users/joesa/Code/browser-agent-harness/.omp/scripts/worktree-flow.py`, then integrate the external version’s features into this repo’s canonical script and exported worktree loadout copy. Planning inspection found the three current files already match: `git diff --no-index -- .omp/scripts/worktree-flow.py C:/Users/joesa/Code/browser-agent-harness/.omp/scripts/worktree-flow.py` produced no output, and `git diff --no-index -- .omp/scripts/worktree-flow.py loadouts/worktrees/.harness/scripts/worktree-flow.py` produced no output. The remaining requested behavior is stricter than the external script: remove routine terminal command spam such as `+ (<cwd>) <command>` while keeping useful high-level results, warnings, failure details, and resumability.
 
 ## Approach
+
 1. Reconfirm the baseline before editing.
    - From `C:/Users/joesa/Code/harness-loadouts`, run:
      - `git diff --no-index -- .omp/scripts/worktree-flow.py C:/Users/joesa/Code/browser-agent-harness/.omp/scripts/worktree-flow.py`
@@ -49,12 +51,15 @@ The original request was to compare this repo’s `.omp/scripts/worktree-flow.py
    - Do not edit or create `loadouts/worktrees/.opencode/scripts/worktree-flow.py`; planning `find` found no such file. If it appears before implementation, update it with the same source content too because repo instructions require exported opencode copies for `.omp/scripts` changes.
 
 ## Critical files & anchors
+
 - `.omp/scripts/worktree-flow.py` — `CommandRunner.__init__`, `CommandRunner.run`, `FlowConfig`, `build_parser()`, `flow_config_from_args()`, and `main()` implement the clean-output behavior.
 - `loadouts/worktrees/.harness/scripts/worktree-flow.py` — exported worktree loadout copy that must receive the same source edits as `.omp/scripts/worktree-flow.py`.
 - `C:/Users/joesa/Code/browser-agent-harness/.omp/scripts/worktree-flow.py` — external comparison source; current planning diff showed it already matches this repo, but it is no longer the final behavior for command echoing because the new requirement is quieter than that script.
 
 ## Verification
+
 Run from `C:/Users/joesa/Code/harness-loadouts` after edits:
+
 1. `git diff --no-index -- .omp/scripts/worktree-flow.py loadouts/worktrees/.harness/scripts/worktree-flow.py`
    - Expected: no output and exit code 0.
 2. `python .omp/scripts/worktree-flow.py --help`
@@ -73,6 +78,7 @@ Run from `C:/Users/joesa/Code/harness-loadouts` after edits:
    - Expected: exits without making git changes; stdout includes `+ (` command lines because dry-run remains a command preview mode. If the dry-run reaches harness validation and the harness executable is unavailable, the command may exit 1; the expected clean-output assertion is still that dry-run prints `+ (` command lines.
 
 ## Assumptions & contingencies
+
 - The prior plan did not satisfy the stricter clean-output requirement because it preserved unconditional subprocess prints. This revised plan makes normal execution quiet by default and keeps `--verbose`/`--dry-run` as explicit trace modes.
 - The external script is no longer treated as the complete source of truth for terminal output. It remains the source for already-integrated features such as resume-command printing and removed phase banners, while this plan adds the missing quiet-by-default subprocess behavior.
 - If approval-time inspection finds additional normal-run terminal spam besides `+ (<cwd>) <command>`, remove only routine progress/chatter prints. Do not remove warnings, final archive/worktree/branch lines, failure messages, or resume commands.

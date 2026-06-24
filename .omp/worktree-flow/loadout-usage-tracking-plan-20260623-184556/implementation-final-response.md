@@ -6,6 +6,7 @@ Implemented and committed the approved plan.
 - Handoff/workflow artifacts remain untracked as required.
 
 Changed:
+
 - `harness-init.ps1`
 - `update-loadout-repos.ps1`
 - `tests/test_harness_init.py`
@@ -13,10 +14,12 @@ Changed:
 - `.omp/skill-usage.json`
 
 Verified:
+
 - `python -m unittest tests.test_harness_init`
 - Result: `Ran 8 tests ... OK`
 
 Final status:
+
 - Clean tracked worktree.
 - Untracked only:
   - `.omp/handoff/`

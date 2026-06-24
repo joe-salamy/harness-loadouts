@@ -1,11 +1,13 @@
 # Loadout Usage Tracking Plan
 
 ## Context
+
 Add per-loadout tracking so each loadout records every target repository it has been applied to, then add a bulk update script that reapplies an updated loadout to all recorded repositories. The registry lives under the loadout directory because the selected tracking scope is per loadout. Missing recorded repo paths warn and continue because the selected missing-repo policy is warn-and-continue.
 
 Confirmed current behavior: `harness-init.ps1` is the loadout application script; it accepts `-Loadout`, `-Target`, required `-Harness`, and `-List`, resolves `$ScriptRoot`, `$LoadoutsDir`, `$LoadoutPath`, and `$Target`, then copies instructions, skills, hook config, and remaining loadout contents. Existing overwrite prompts are in `Copy-FileWithPrompt` and `Copy-Skills`, so a bulk updater needs a noninteractive overwrite path. Searches found no existing applied-repo registry or bulk-update script.
 
 ## Approach
+
 1. Add an opt-in noninteractive overwrite path to `harness-init.ps1`.
    - Add `[switch]$Force` to the existing `param(...)` block after `[switch]$List`.
    - Change `Copy-FileWithPrompt` so when `$Force` is true and `$Dest` exists, it copies `$Source` to `$Dest` with `-Force`, writes `  [OVERWROTE] <relative path>`, and never calls `Read-Host`.
@@ -24,7 +26,11 @@ Confirmed current behavior: `harness-init.ps1` is the loadout application script
    - Add `function Save-LoadoutUsage { param([string]$LoadoutPath, [string]$Loadout, [string]$Target, [string]$Harness) ... }` that creates `.harness-loadout`, reads the registry, removes any existing entry whose `path` equals `$Target` case-insensitively and whose `harness` equals `$Harness` case-insensitively, appends one entry, sorts by `path` then `harness`, and writes UTF-8 JSON with `ConvertTo-Json -Depth 10`.
    - The exact entry shape is:
      ```json
-     { "path": "C:\\absolute\\repo", "harness": "codex", "lastAppliedAt": "2026-06-24T00:00:00.0000000Z" }
+     {
+       "path": "C:\\absolute\\repo",
+       "harness": "codex",
+       "lastAppliedAt": "2026-06-24T00:00:00.0000000Z"
+     }
      ```
      Use the already resolved absolute `$Target` and `$profile.Name` so the `claude-code` alias records as `claude`.
    - Call `Save-LoadoutUsage -LoadoutPath $LoadoutPath -Loadout $Loadout -Target $Target -Harness $profile.Name` after the final loadout copy loop succeeds and before `Write-Host "`nDone!"`. Do not record on `-List`, validation failures, or partial copy failures.
@@ -79,11 +85,13 @@ Confirmed current behavior: `harness-init.ps1` is the loadout application script
    - In How It Works, add bullets stating that successful applies record `<target path, harness, last applied time>` in `loadouts/<loadout>/.harness-loadout/applied-repos.json`, the metadata directory is not copied into targets, and `update-loadout-repos.ps1` replays those entries with `-Force` while warning and continuing for missing repos.
 
 ## Critical files & anchors
+
 - `harness-init.ps1` — `param` lines 14-19, overwrite prompts in `Copy-FileWithPrompt` and `Copy-Skills`, target/loadout validation around lines 350-374, final copy loop around lines 431-452.
 - `tests/test_harness_init.py` — current PowerShell integration tests use `pwsh -NoProfile -ExecutionPolicy Bypass -File ...` with temp loadouts and targets; add registry and updater tests here.
 - `README.md` — Quick Start lines 15-23 and How It Works lines 44-50 describe the user-facing script contract.
 
 ## Verification
+
 Run from `C:/Users/joesa/Code/harness-loadouts` after implementation:
 
 ```powershell
@@ -102,6 +110,7 @@ Manual smoke check if desired after tests pass:
 Expected: the first command succeeds and records `<existing-test-repo>` under `loadouts/worktrees/.harness-loadout/applied-repos.json`; the second command prints the planned reapply without changing the target.
 
 ## Assumptions & contingencies
+
 - Registry location is fixed at `loadouts/<loadout>/.harness-loadout/applied-repos.json`. If implementation finds an existing file or directory at `.harness-loadout` that is not a directory, fail with a clear error instead of choosing another path.
 - The registry stores absolute target paths from `Resolve-Path`; do not store relative paths, because the bulk updater runs later from the harness-loadouts repo and must not depend on the original caller's working directory.
 - Bulk update uses the harness recorded at apply time. If the same repo is applied with the same loadout for two harnesses, keep two entries and update both; uniqueness is `(path, harness)`, not path alone.
