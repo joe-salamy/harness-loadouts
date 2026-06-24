@@ -1,0 +1,14 @@
+{
+  "audit_head_before": "750886c98e3fb481e43f97ad0715377d9a40b0fd",
+  "base": "main",
+  "completed_stage": "cleanup_complete",
+  "feature_branch": "feature/worktree-flow-clean-output-plan",
+  "feature_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-worktree-flow-clean-output-plan",
+  "integration_branch": "integration/worktree-flow-clean-output-plan-20260623-184733",
+  "integration_worktree": "C:\\Users\\joesa\\Code\\harness-loadouts-integrate-worktree-flow-clean-output-plan-20260623-184733",
+  "merge_mode": "squash",
+  "plan_path": "C:\\Users\\joesa\\Code\\harness-loadouts-worktree-flow-clean-output-plan\\.omp\\worktree-flow\\worktree-flow-clean-output-plan\\plan.md",
+  "plan_title": "Worktree Flow Clean Output Plan",
+  "run_id": "worktree-flow-clean-output-plan-20260623-183023",
+  "slug": "worktree-flow-clean-output-plan"
+}
