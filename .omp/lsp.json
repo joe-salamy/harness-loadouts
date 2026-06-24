@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "pyright": {
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "fileTypes": [".py"],
+      "rootMarkers": [".omp"]
+    }
+  }
+}
