@@ -133,9 +133,14 @@ class CommandResult:
 
 class CommandRunner:
     def __init__(
-        self, dry_run: bool = False, command_timeout_seconds: float | None = None
+        self,
+        dry_run: bool = False,
+        *,
+        verbose: bool = False,
+        command_timeout_seconds: float | None = None,
     ) -> None:
         self.dry_run = dry_run
+        self.verbose = verbose
         self.command_timeout_seconds = command_timeout_seconds
 
     @staticmethod
@@ -163,7 +168,8 @@ class CommandRunner:
         input_text: str | None = None,
     ) -> CommandResult:
         display = " ".join(args)
-        print(f"+ ({cwd}) {display}")
+        if self.verbose or self.dry_run:
+            print(f"+ ({cwd}) {display}")
         started_at = now_iso()
         start = time.perf_counter()
         if self.dry_run:
@@ -318,6 +324,7 @@ class FlowConfig:
     harness_dir: Path
     merge_mode: str
     keep_worktrees: bool
+    verbose: bool
 
     command_timeout_seconds: float | None = None
 
@@ -2154,6 +2161,11 @@ def build_parser(
         help="Do not remove feature/integration worktrees.",
     )
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print each subprocess command before running it.",
+    )
+    parser.add_argument(
         "--command-timeout-seconds",
         type=positive_seconds,
         help="Optional timeout for each subprocess command.",
@@ -2186,6 +2198,7 @@ def flow_config_from_args(args: argparse.Namespace) -> FlowConfig:
         model=args.model,
         merge_mode=args.merge_mode,
         keep_worktrees=args.keep_worktrees,
+        verbose=args.verbose,
     )
 
 
@@ -2219,6 +2232,7 @@ def main(
             config,
             CommandRunner(
                 args.dry_run,
+                verbose=config.verbose,
                 command_timeout_seconds=config.command_timeout_seconds,
             ),
         )

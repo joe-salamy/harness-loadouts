@@ -7,36 +7,36 @@
         "audit-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:35:26Z",
-          "last_load_index": 17,
-          "last_seen": "2026-06-24T01:35:04Z",
-          "load_count": 4,
+          "last_load_index": 21,
+          "last_seen": "2026-06-24T01:36:51Z",
+          "load_count": 6,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/audit-worktree"
         },
         "code-reviewer": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:36:04Z",
-          "last_load_index": 18,
-          "last_seen": "2026-06-24T01:35:38Z",
-          "load_count": 3,
+          "last_load_index": 23,
+          "last_seen": "2026-06-24T01:38:43Z",
+          "load_count": 5,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/code-reviewer"
         },
         "implement-worktree": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:26:47Z",
-          "last_load_index": 19,
+          "last_load_index": 24,
           "last_seen": "2026-06-24T01:32:04Z",
-          "load_count": 4,
+          "load_count": 5,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/implement-worktree"
         },
         "python-pro": {
           "archived_at": null,
           "first_seen": "2026-05-31T23:36:03Z",
-          "last_load_index": 16,
-          "last_seen": "2026-06-23T20:38:47Z",
-          "load_count": 4,
+          "last_load_index": 25,
+          "last_seen": "2026-06-24T01:37:51Z",
+          "load_count": 5,
           "pinned": false,
           "source_path": "C:/Users/joesa/Code/harness-loadouts/.omp/skills/python-pro"
         },
@@ -51,7 +51,7 @@
         }
       },
       "skills_dir": "C:/Users/joesa/Code/harness-loadouts/.omp/skills",
-      "total_loads": 19
+      "total_loads": 25
     }
   },
   "version": 1
