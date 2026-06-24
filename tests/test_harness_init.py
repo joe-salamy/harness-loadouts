@@ -282,6 +282,8 @@ class HarnessInitTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual((target / ".codex" / "settings.txt").read_text(encoding="utf-8"), "v1")
+            self.assertIn("Planned update for repo:", result.stdout)
+            self.assertIn("[WOULD CHANGE] .codex/settings.txt", result.stdout)
 
 
 if __name__ == "__main__":

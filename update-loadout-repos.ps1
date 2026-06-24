@@ -64,6 +64,13 @@ foreach ($repo in @($data.repos)) {
     }
 
     if (-not $PSCmdlet.ShouldProcess($repo.path, "Apply loadout '$Loadout' for harness '$($repo.harness)'")) {
+        Write-Host "Planned update for repo: $($repo.path)" -ForegroundColor Cyan
+        & $Pwsh -NoProfile -ExecutionPolicy Bypass -File $HarnessInit -Loadout $Loadout -Target $repo.path -Harness $repo.harness -Force -PlanChanges
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Failed to plan repo: $($repo.path)"
+            $failed++
+            continue
+        }
         $planned++
         continue
     }

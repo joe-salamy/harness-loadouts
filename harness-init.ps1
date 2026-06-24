@@ -17,7 +17,8 @@ param(
     [ValidateSet("opencode", "codex", "gemini", "claude", "claude-code", "omp")]
     [string]$Harness,
     [switch]$List,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$PlanChanges
 )
 
 $ErrorActionPreference = "Stop"
@@ -351,6 +352,263 @@ function Copy-InstructionFile {
     }
 }
 
+function Get-RepoRelativePath {
+    param([string]$Path)
+    return $Path.Replace($Target, "").TrimStart("\", "/").Replace("\", "/")
+}
+
+function Test-FileContentMatches {
+    param([string]$Source, [string]$Dest)
+
+    if (-not (Test-Path $Dest -PathType Leaf)) {
+        return $false
+    }
+
+    $sourceInfo = Get-Item -LiteralPath $Source
+    $destInfo = Get-Item -LiteralPath $Dest
+    if ($sourceInfo.Length -ne $destInfo.Length) {
+        return $false
+    }
+
+    $sourceBytes = [System.IO.File]::ReadAllBytes($Source)
+    $destBytes = [System.IO.File]::ReadAllBytes($Dest)
+    for ($index = 0; $index -lt $sourceBytes.Length; $index++) {
+        if ($sourceBytes[$index] -ne $destBytes[$index]) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Add-PlannedChange {
+    param([System.Collections.Generic.List[string]]$Changes, [string]$Dest)
+
+    $relative = Get-RepoRelativePath -Path $Dest
+    if (-not $Changes.Contains($relative)) {
+        [void]$Changes.Add($relative)
+    }
+}
+
+function Add-PlannedFileChange {
+    param([System.Collections.Generic.List[string]]$Changes, [string]$Source, [string]$Dest)
+
+    if (-not (Test-FileContentMatches -Source $Source -Dest $Dest)) {
+        Add-PlannedChange -Changes $Changes -Dest $Dest
+    }
+}
+
+function Add-PlannedItemChanges {
+    param([System.Collections.Generic.List[string]]$Changes, [string]$Source, [string]$Dest, [string]$RelativePath = "")
+
+    $item = Get-Item -LiteralPath $Source -Force
+    $relative = if ([string]::IsNullOrWhiteSpace($RelativePath)) { $item.Name } else { $RelativePath }
+    if (Test-SkipGeneratedPythonCache -Item $item -RelativePath $relative) {
+        return
+    }
+
+    if ($item.PSIsContainer) {
+        foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force) {
+            $childRelative = if ([string]::IsNullOrWhiteSpace($relative)) { $child.Name } else { "$relative/$($child.Name)" }
+            Add-PlannedItemChanges -Changes $Changes -Source $child.FullName -Dest (Join-Path $Dest $child.Name) -RelativePath $childRelative
+        }
+    } else {
+        Add-PlannedFileChange -Changes $Changes -Source $item.FullName -Dest $Dest
+    }
+}
+
+function Add-PlannedDirectoryChanges {
+    param([System.Collections.Generic.List[string]]$Changes, [string]$Source, [string]$Dest, [string[]]$SkipRelativePaths = @(), [string]$Base = $Source)
+
+    foreach ($child in Get-ChildItem -Path $Source -Force) {
+        $relative = $child.FullName.Substring($Base.Length).TrimStart("\", "/")
+        $normalized = $relative.Replace("\", "/")
+        if (($SkipRelativePaths -contains $normalized) -or (Test-SkipGeneratedPythonCache -Item $child -RelativePath $normalized)) {
+            continue
+        }
+
+        $childDest = Join-Path $Dest $child.Name
+        if ($child.PSIsContainer) {
+            Add-PlannedDirectoryChanges -Changes $Changes -Source $child.FullName -Dest $childDest -SkipRelativePaths $SkipRelativePaths -Base $Base
+        } else {
+            Add-PlannedFileChange -Changes $Changes -Source $child.FullName -Dest $childDest
+        }
+    }
+}
+
+function Add-PlannedSkillsChanges {
+    param([System.Collections.Generic.List[string]]$Changes, [string]$Source, [string]$Dest)
+
+    if (-not $Source -or -not (Test-Path $Source)) {
+        return
+    }
+
+    foreach ($skill in Get-ChildItem -Path $Source -Force) {
+        if (Test-SkipGeneratedPythonCache -Item $skill -RelativePath $skill.Name) {
+            continue
+        }
+
+        Add-PlannedItemChanges -Changes $Changes -Source $skill.FullName -Dest (Join-Path $Dest $skill.Name) -RelativePath $skill.Name
+    }
+}
+
+function Add-PlannedInstructionChange {
+    param([System.Collections.Generic.List[string]]$Changes, [object]$Profile, [string]$LoadoutPath)
+
+    $sourceFile = Join-RepoPath $LoadoutPath $Profile.InstructionFile
+    foreach ($alias in $Profile.InstructionAliases) {
+        if (-not (Test-Path $sourceFile)) {
+            $sourceFile = Join-RepoPath $LoadoutPath $alias
+        }
+    }
+
+    if (-not (Test-Path $sourceFile)) {
+        return
+    }
+
+    $targetFile = Join-RepoPath $Target $Profile.InstructionFile
+    $loadoutContent = [System.IO.File]::ReadAllText($sourceFile)
+    if (-not (Test-Path $targetFile)) {
+        Add-PlannedChange -Changes $Changes -Dest $targetFile
+        return
+    }
+
+    $existing = [System.IO.File]::ReadAllText($targetFile)
+    if (-not $existing.Contains($loadoutContent.Trim())) {
+        Add-PlannedChange -Changes $Changes -Dest $targetFile
+    }
+}
+
+function Test-HookConfigWouldChange {
+    param([string]$Source, [string]$Dest)
+
+    if (-not (Test-Path $Source)) {
+        return $false
+    }
+
+    $sourceData = Get-Content -Raw $Source | ConvertFrom-Json
+    if (-not (Test-Path $Dest)) {
+        return $true
+    }
+
+    $destData = Get-Content -Raw $Dest | ConvertFrom-Json
+    if ($sourceData.PSObject.Properties["hooks"]) {
+        if (-not $destData.PSObject.Properties["hooks"]) {
+            return $true
+        }
+
+        foreach ($event in $sourceData.hooks.PSObject.Properties) {
+            if (-not $destData.hooks.PSObject.Properties[$event.Name]) {
+                return $true
+            }
+
+            $existingKeys = @{}
+            foreach ($entry in @(ConvertTo-Array $destData.hooks.$($event.Name))) {
+                $existingKeys[(Get-HookEntryKey $entry)] = $true
+            }
+            foreach ($entry in @(ConvertTo-Array $event.Value)) {
+                if (-not $existingKeys.ContainsKey((Get-HookEntryKey $entry))) {
+                    return $true
+                }
+            }
+        }
+    }
+
+    foreach ($property in $sourceData.PSObject.Properties) {
+        if ($property.Name -eq "hooks") {
+            continue
+        }
+        if (-not $destData.PSObject.Properties[$property.Name]) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-PlannedLoadoutChanges {
+    param([object]$Profile, [string]$LoadoutPath)
+
+    $changes = [System.Collections.Generic.List[string]]::new()
+
+    Add-PlannedInstructionChange -Changes $changes -Profile $Profile -LoadoutPath $LoadoutPath
+
+    $skipTopLevel = @($Profile.InstructionFile) + $Profile.InstructionAliases
+    $skipByConfigDir = @{}
+
+    if ($Profile.SkillsPath) {
+        $sourceSkills = $null
+        foreach ($skillSourcePath in $Profile.SkillSourcePaths) {
+            $candidate = Join-RepoPath $LoadoutPath $skillSourcePath
+            if (Test-Path $candidate) {
+                $sourceSkills = $candidate
+                break
+            }
+        }
+        Add-PlannedSkillsChanges -Changes $changes -Source $sourceSkills -Dest (Join-RepoPath $Target $Profile.SkillsPath)
+
+        $skillsParts = $Profile.SkillsPath -split "[/\\]"
+        $configDir = $skillsParts[0]
+        $skipRel = ($skillsParts[1..($skillsParts.Length - 1)] -join "/")
+        $skipByConfigDir[$configDir] = @($skipByConfigDir[$configDir]) + $skipRel
+    }
+
+    if ($Profile.HookConfigPath) {
+        $sourceHookConfig = Join-RepoPath $LoadoutPath $Profile.HookConfigPath
+        if ($Profile.PSObject.Properties["HookSourcePaths"]) {
+            foreach ($hookSourcePath in $Profile.HookSourcePaths) {
+                $candidate = Join-RepoPath $LoadoutPath $hookSourcePath
+                if (Test-Path $candidate) {
+                    $sourceHookConfig = $candidate
+                    break
+                }
+            }
+        }
+        $targetHookConfig = Join-RepoPath $Target $Profile.HookConfigPath
+        if (Test-HookConfigWouldChange -Source $sourceHookConfig -Dest $targetHookConfig) {
+            Add-PlannedChange -Changes $changes -Dest $targetHookConfig
+        }
+
+        $hookParts = $Profile.HookConfigPath -split "[/\\]"
+        $configDir = $hookParts[0]
+        $skipRel = ($hookParts[1..($hookParts.Length - 1)] -join "/")
+        $skipByConfigDir[$configDir] = @($skipByConfigDir[$configDir]) + $skipRel
+        if ($Profile.PSObject.Properties["HookSourcePaths"]) {
+            foreach ($hookSourcePath in $Profile.HookSourcePaths) {
+                $sourceParts = $hookSourcePath -split "[/\\]"
+                if ($sourceParts[0] -eq $configDir -or $sourceParts[0] -eq $Profile.TemplateConfigDir) {
+                    $sourceSkipRel = ($sourceParts[1..($sourceParts.Length - 1)] -join "/")
+                    $skipByConfigDir[$configDir] = @($skipByConfigDir[$configDir]) + $sourceSkipRel
+                }
+            }
+        }
+    }
+
+    $knownHarnessDirs = @(".harness", ".claude", ".opencode", ".codex", ".agents", ".gemini", ".omp")
+    foreach ($item in Get-ChildItem -Path $LoadoutPath -Force) {
+        if ((Test-SkipGeneratedPythonCache -Item $item -RelativePath $item.Name) -or ($skipTopLevel -contains $item.Name) -or ($item.Name -eq ".harness-loadout")) {
+            continue
+        }
+        if ($item.PSIsContainer -and ($knownHarnessDirs -contains $item.Name) -and ($item.Name -ne $Profile.TemplateConfigDir) -and -not ($Profile.ConfigDirs -contains $item.Name)) {
+            continue
+        }
+
+        $destName = if ($item.PSIsContainer -and $item.Name -eq $Profile.TemplateConfigDir) { $Profile.ConfigDir } else { $item.Name }
+        $destPath = Join-Path $Target $destName
+        if ($item.PSIsContainer) {
+            $skipRelativePaths = @()
+            if ($skipByConfigDir.ContainsKey($destName)) {
+                $skipRelativePaths = @($skipByConfigDir[$destName])
+            }
+            Add-PlannedDirectoryChanges -Changes $changes -Source $item.FullName -Dest $destPath -SkipRelativePaths $skipRelativePaths
+        } else {
+            Add-PlannedFileChange -Changes $changes -Source $item.FullName -Dest $destPath
+        }
+    }
+
+    return @($changes | Sort-Object -Unique)
+}
+
 function Get-LoadoutUsagePath {
     param([string]$LoadoutPath)
     return Join-RepoPath $LoadoutPath ".harness-loadout/applied-repos.json"
@@ -450,6 +708,18 @@ if (-not (Test-Path $Target -PathType Container)) {
 }
 
 $profile = Get-HarnessProfile $Harness
+if ($PlanChanges) {
+    Write-Host "Planning loadout '$Loadout' for '$Harness' to: $Target" -ForegroundColor Cyan
+    $plannedChanges = @(Get-PlannedLoadoutChanges -Profile $profile -LoadoutPath $LoadoutPath)
+    if ($plannedChanges.Count -eq 0) {
+        Write-Host "  [NO CHANGES] No file changes planned" -ForegroundColor DarkYellow
+    } else {
+        foreach ($plannedChange in $plannedChanges) {
+            Write-Host "  [WOULD CHANGE] $plannedChange" -ForegroundColor Yellow
+        }
+    }
+    exit 0
+}
 Write-Host "Applying loadout '$Loadout' for '$Harness' to: $Target" -ForegroundColor Cyan
 
 Copy-InstructionFile -Profile $profile -LoadoutPath $LoadoutPath -Target $Target
